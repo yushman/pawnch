@@ -5,3 +5,13 @@ build/
 target/
 .env
 .DS_Store
+.idea
+.claude
+*.iml
+.godot/
+.build_tmp/
+android/
+*.apk
+*.aab
+*.keystore
+*.jks

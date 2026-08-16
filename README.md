@@ -64,18 +64,36 @@ The animation is the product, so the frame budget is the spec, not a nice-to-hav
 | Total clash duration | ≤2.0 s | — |
 | Cold start → interactive board | ≤3.0 s | — |
 
-Measured on: *(device to be named — a 2022 mid-range Android, Snapdragon 680 / Adreno 610
-class. Numbers from a laptop or a flagship would be meaningless here.)*
+Measured on: **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`), MediaTek Helio G99, Mali-G57 MC2,
+1080x2400, Android 16 (SDK 36), arm64-v8a. Its GPU is a step above the Snapdragon 680 /
+Adreno 610 class the budgets above were written against, so numbers measured on it are
+optimistic — the budgets themselves are unchanged.
 
 ## Building
 
-Requires **Godot 4.3+** with the Android export templates, a JDK and the Android SDK.
+Requires **Godot 4.7.1** (standard build, not .NET) with the matching Android export
+templates, a JDK and the Android SDK.
 
 ```
 git clone <this repo>
-# open the project in Godot 4.3+, then:
-#   Project → Export → Android → Export Project
+tools/build.sh              # headless export -> build/pawnch.apk
+tools/deploy.sh             # build, install and launch on the attached device
+tools/check_no_internet.sh  # fails if the APK declares android.permission.INTERNET
+tools/frametime.sh --cold   # cold-start ms, worst frame ms, frames over 20 ms
 ```
+
+The Android SDK path and debug keystore are configured once in the Godot editor's export
+settings, not committed. Generate the debug key locally:
+
+```
+keytool -genkeypair -v -keystore ~/Library/Application\ Support/Godot/keystores/debug.keystore \
+  -storepass android -alias androiddebugkey -keypass android \
+  -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+```
+
+HyperOS (MIUI) devices, including the Redmi Note 13 4G above, need the **Install via USB**
+developer toggle enabled or `adb install` fails with a permission error.
+
 
 Runs fully offline. The manifest contains no `INTERNET` permission, by design — this is meant
 to be a phone a parent can hand over without reading a privacy policy.
@@ -93,5 +111,8 @@ The `docs/` directory is published deliberately; it shows how the decisions were
 
 ## License
 
-Not yet chosen — a `LICENSE` file lands with the first build, along with the attribution for
-the vendored chess rules library.
+Not yet chosen for the game itself.
+
+Chess move generation is vendored from
+[thearst3rd/stopwaitingforgodot-chess](https://github.com/thearst3rd/stopwaitingforgodot-chess)
+(`vendor/chess/`), © 2021 Terry Hearst, MIT licence — see `vendor/chess/LICENSE`.

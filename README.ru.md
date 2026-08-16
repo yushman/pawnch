@@ -65,18 +65,36 @@ squash-and-stretch, комичный, а не жестокий удар. Ни к
 | Полная длительность дуэли | ≤2,0 с | — |
 | Холодный старт → рабочая доска | ≤3,0 с | — |
 
-Измерено на: *(устройство будет названо — Android среднего уровня 2022 года, класс
-Snapdragon 680 / Adreno 610. Цифры с ноутбука или флагмана здесь ничего не значат.)*
+Измерено на: **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`), MediaTek Helio G99, Mali-G57 MC2,
+1080x2400, Android 16 (SDK 36), arm64-v8a. Его GPU на ступень выше класса Snapdragon 680 /
+Adreno 610, под который писались бюджеты выше, поэтому цифры с него оптимистичны — сами
+бюджеты не менялись.
 
 ## Сборка
 
-Нужен **Godot 4.3+** с шаблонами экспорта под Android, JDK и Android SDK.
+Нужен **Godot 4.7.1** (стандартная сборка, не .NET) с подходящими шаблонами экспорта под
+Android, JDK и Android SDK.
 
 ```
 git clone <этот репозиторий>
-# открыть проект в Godot 4.3+, затем:
-#   Project → Export → Android → Export Project
+tools/build.sh              # headless-экспорт -> build/pawnch.apk
+tools/deploy.sh             # сборка, установка и запуск на подключённом устройстве
+tools/check_no_internet.sh  # падает, если в APK есть android.permission.INTERNET
+tools/frametime.sh --cold   # холодный старт, мс; худший кадр, мс; кадры дольше 20 мс
 ```
+
+Путь к Android SDK и debug-keystore настраиваются один раз в экспорт-настройках редактора
+Godot и не коммитятся. Сгенерировать debug-ключ локально:
+
+```
+keytool -genkeypair -v -keystore ~/Library/Application\ Support/Godot/keystores/debug.keystore \
+  -storepass android -alias androiddebugkey -keypass android \
+  -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+```
+
+На устройствах с HyperOS (MIUI), включая Redmi Note 13 4G выше, нужно включить тумблер
+разработчика **Install via USB**, иначе `adb install` падает с ошибкой доступа.
+
 
 Работает полностью офлайн. В манифесте намеренно нет разрешения `INTERNET` — телефон должно
 быть можно отдать ребёнку, не читая политику конфиденциальности.
@@ -94,5 +112,8 @@ git clone <этот репозиторий>
 
 ## Лицензия
 
-Пока не выбрана — файл `LICENSE` появится вместе с первой сборкой, вместе с атрибуцией
-вендоренной шахматной библиотеки правил.
+Для самой игры пока не выбрана.
+
+Генерация шахматных ходов вендорена из
+[thearst3rd/stopwaitingforgodot-chess](https://github.com/thearst3rd/stopwaitingforgodot-chess)
+(`vendor/chess/`), © 2021 Terry Hearst, лицензия MIT — см. `vendor/chess/LICENSE`.

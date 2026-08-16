@@ -79,8 +79,11 @@ optional. Loud incompleteness is fine here; silent wrongness is not.
    clash of duration > 0. Runs in CI on every push; this is the one that fails on every day
    before the animations exist.
 4. **Frame drops that only exist on the device** — not a unit test, a daily ritual from Day 3:
-   `adb shell dumpsys gfxinfo com.pawnch.game framestats` over a run containing the **first**
-   clash after a cold start, worst frame into the devlog with the command.
+   `tools/frametime.sh --cold` over a run containing the **first** clash after a cold start,
+   dropped-vsync count and worst gap into the devlog with the command. Frame timing is measured
+   inside the engine, not with `dumpsys gfxinfo` — that reports HWUI, which never sees a Godot
+   `SurfaceView` — and the "no frame over 20 ms" budget means **no dropped vsync**, not a raw
+   interval threshold: [ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md).
 5. **Impact cue misalignment** — the debug overlay logs the ms delta from the `impact` cue to
    the SFX and haptic dispatches. Budget ≤16 ms. "Feels mushy" is unfalsifiable; this number is
    not.
@@ -90,19 +93,31 @@ than by unit tests, plus "play one full game to mate" in the definition of done.
 
 ## Spec-driven workflow (OpenSpec) — required
 
-This repo uses OpenSpec. The `openspec/` directory is **mandatory**; if it is missing, run
-`openspec init --tools claude` before doing anything else.
+This repo uses OpenSpec, deliberately cut down to four commands and two artifacts —
+a two-week sprint does not survive a four-stage proposal ritual.
 
+- `openspec/config.yaml` — project schema, context and per-artifact rules, injected into
+  every artifact the tooling generates.
+- `openspec/schemas/pawnch/` — the project-local schema: **specs → tasks**, nothing else.
+  `proposal.md` and `design.md` are dropped on purpose: the "why" already lives in
+  `docs/product-analysis.md` and the decisions in `docs/adr/`.
 - `openspec/specs/<capability>/spec.md` — current, accepted behavior per capability.
-- `openspec/changes/<name>/` — an in-flight proposal (`proposal.md`, `design.md`,
+- `openspec/changes/<name>/` — an in-flight change (`specs/<capability>/spec.md` delta +
   `tasks.md`) before it lands in `specs/`.
 - `openspec/changes/archive/` — completed changes, kept for history.
 
-**No feature work without a change proposal.** Every unit of work larger than a bugfix
-starts as a proposal, is implemented against its `tasks.md`, and is archived when done, so
-that `specs/` always describes what the code actually does. Use the `openspec-propose`,
-`openspec-apply-change` and `openspec-archive-change` skills; `openspec validate` must
-pass before a change is applied.
+**No feature work without a change.** Every unit of work larger than a bugfix runs
+`/opsx:ff <what you want>` → `/opsx:apply` → `/opsx:archive`, so that `specs/` always
+describes what the code actually does. `openspec status --change <name>` is the readiness
+check; `openspec validate` does not understand this schema and reports nothing — do not
+rely on it.
+
+`/opsx:explore` sits before all of that and is optional: a thinking stance for chewing on
+an idea, never a step that writes code.
+
+The four-command set is a local choice, not a global one: `openspec update` run inside
+this repo re-generates all eight `opsx` commands from the user's global config. If that
+happens, delete the four extras again — the flow above is still the flow.
 
 The MVP plan in `docs/mvp-plan.md` says *what* gets built and when; OpenSpec changes say
 *what the behavior is*. They are not substitutes for each other.

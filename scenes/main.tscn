@@ -1,0 +1,14 @@
+[gd_scene load_steps=2 format=3 uid="uid://bxqmc0y3vqfgk"]
+
+[ext_resource type="Script" path="res://scripts/frame_probe.gd" id="1_probe"]
+
+[node name="Main" type="ColorRect"]
+anchors_preset=15
+anchor_right=1.0
+anchor_bottom=1.0
+grow_horizontal=2
+grow_vertical=2
+color=Color(0.14, 0.55, 0.28, 1)
+
+[node name="FrameProbe" type="Node" parent="."]
+script=ExtResource("1_probe")

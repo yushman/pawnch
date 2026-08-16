@@ -36,6 +36,10 @@ phone: Snapdragon 680 / Adreno 610 class GPU, 1080×2400 portrait, 4 GB RAM, And
 Not a flagship, and never measured on one. The **exact physical device used for measurement is
 named in the README** so the numbers mean something.
 
+Measurement is actually taken on a **Xiaomi Redmi Note 13 4G** (MediaTek Helio G99,
+Mali-G57 MC2, Android 16 / SDK 36) — a step above the Snapdragon 680 / Adreno 610 class above,
+so its numbers are optimistic. The budgets below are kept unchanged regardless.
+
 | Constraint | Number | Why it constrains a decision |
 |-----------|--------|------------------------------|
 | Frame rate during the clash | **≥50 fps sustained** (target 60), and **no single frame >20 ms** during transition-in | Product metric 2. This is what makes the Compatibility renderer and cutout-over-particle-heavy decisions ([ADR-0001](adr/0001-godot-4-gdscript-android-only.md)) the right ones. A stutter on the impact frame destroys the wedge more thoroughly than a mediocre pose does |
@@ -229,9 +233,13 @@ one is a test the build owes.
    fatal to the wedge, and invisible in a screen recording made on the second capture.
    *Smallest thing that catches it:* warm the clash materials and textures at boot (a
    pre-pass), and run the on-device ritual **daily from Day 3**:
-   `adb shell dumpsys gfxinfo com.pawnch.game framestats`, recording the worst frame of a run
+   `tools/frametime.sh --cold`, recording the dropped-vsync count and worst gap of a run
    containing at least one *first* clash after a cold start. The number goes in the devlog with
-   the command that produced it.
+   the command that produced it. (Originally specified as
+   `adb shell dumpsys gfxinfo com.pawnch.game framestats`; that measures HWUI, which never sees
+   a Godot `SurfaceView`, and was replaced on Day 1 —
+   [ADR-0006](adr/0006-in-engine-frame-timing-instead-of-dumpsys.md), which also reinterprets
+   "no frame over 20 ms" as "no dropped vsync" and explains why.)
 
 5. **Impact cue misalignment — juice that fires at the wrong moment.** The SFX plays 150 ms
    after the impact frame, or the haptic fires during the wind-up, or the screen shake starts a
