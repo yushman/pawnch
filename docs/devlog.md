@@ -1031,4 +1031,18 @@ available device cannot currently prove.
 
 ## Ideas for later
 
-- Nothing yet.
+- **Mini-arena instead of a training mode.** A small preset board with a "capture everything in N
+  moves" win condition — no lesson text, no hints, no progression, no localisation. It answers the
+  same wish a training mode answers, but it works *on* the hypothesis under test instead of beside
+  it: a full game from the start position reaches its first capture around move 4, an arena reaches
+  one in ten seconds, which also makes it the better subject for the demo recording. Non-goal 1
+  stands unchanged — this is not a lighter tutorial, it is a different answer to the same wish, and
+  the reason it waits is arithmetic: roughly two half-days *after* Day 9, against three and a half
+  before it, because by then the board, the rules, the input and the highlights all already exist.
+  The only thing it needs from the sprint is
+  [ADR-0011](adr/0011-rotated-board-tall-cells-and-baked-pieces.md) decision 6 — `BoardView` takes
+  its dimensions and start FEN as parameters.
+- **The orange "this piece is defended" highlight**, if difficulty levels ever exist. It does not
+  need a sixth adapter function: swap the enemy piece in the FEN for one of ours, hand the move to
+  the opponent, and ask `legal_moves` who takes it back. Pins fall out correctly for free. ~30 lines
+  on a scratch adapter instance. Parked with difficulty settings behind non-goal 11.
