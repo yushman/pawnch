@@ -245,7 +245,8 @@ the prebuilt template ships rather than the intended 31 — worth checking befor
 Redmi Note 13 4G (`2312FPCA6G`), same device as Day 1. Ran the Day-2 on-device pass against
 `openspec/changes/duel-panel-and-rig/tasks.md`. The phone was physically disconnected partway
 through — everything below is what got measured before that, reported honestly rather than
-padded. Task 12 (this entry) stays unchecked in `tasks.md`; two `TODO:`s below are for the human.
+padded. Task 12 (this entry) stays unchecked in `tasks.md` — see the closing section of the
+2026-08-17 entry for what is still holding it.
 
 **Found and fixed a Day-1 bug that was silently shipping every build sideways.** `project.godot`
 stored `window/handheld/orientation="portrait"` — a **string**. Godot 4.7's Android exporter does
@@ -383,11 +384,34 @@ the only lever that lowers the manual-correction floor. Noted along the way: the
 shader must sit on a plain `TextureRect` over the viewport texture, not on the `CanvasGroup` that
 already fails to apply a `ShaderMaterial` on device (task 8 above).
 
-TODO: how much of the two budgeted half-days this verification pass actually consumed.
-TODO: any decision here a stranger would question — the `screen/orientation` false start in
-`export_presets.cfg`, and whether treating the wipe/cold-start dropped-vsync numbers as
-"inconclusive due to background noise" rather than a hard fail is the right call, both seem worth
-a second pair of eyes.
+**Against the estimate.** The two budgeted half-days assumed authoring: one master body generation,
+nine body parts rebuilt as flat shapes, a face, three expression overlays, two helmets and two
+weapons. None of that happened. The plan was abandoned mid-day and replaced by importing two
+bought asset packs, so the original estimate is not a thing this can be measured against — the
+question "did the rig eat both half-days" has no answer because the rig as planned was never
+built. What replaced it is recorded in the 2026-08-17 entry below. **Day 3 does not slide**, which
+was the actual purpose of the watch clause. *(Raw hours spent: not tracked — fill in if it matters
+for the article.)*
+
+**What a stranger would question.** Three things, in ascending order of how much they deserve it.
+
+The `screen/orientation` false start is the least interesting: `project.godot` stored
+`"portrait"` as a **string** where Godot's Android exporter does `int(...)` on it, silently
+yielding `0` — landscape. Every prior build shipped sideways. It reads as a long detour for a
+one-character fix, but the failure was invisible from the project settings, which all looked
+correct. Task 1's note carries the full trail.
+
+Calling the wipe and cold-start dropped-vsync numbers "inconclusive due to background noise"
+rather than a hard fail is the one that genuinely wants a second pair of eyes, and re-measuring on
+2026-08-17 did not settle it: one wipe-drive run came back clean, the next was clearly above the
+idle baseline. The uncomfortable conclusion is not about the wipe. It is that **a budget which
+cannot be measured reliably on the only device available cannot gate anything**, and two checklist
+items are now parked behind exactly that. Either the measurement gets tighter or the budget gets
+honest; leaving it as "inconclusive" indefinitely is the worst of the three options.
+
+The largest one is not in this entry at all, because it happened after it: **the entire art plan
+was thrown away and replaced with two free asset packs.** A stranger should question that hardest
+of anything here. It is argued in the 2026-08-17 entry and in ADR-0007.
 
 **Shipped `Idle` now holds the sword; `show_idle_weapon` keeps `verify_rig.py` at 0.9988.** The
 pack's own `Idle` keys the Sword's alpha to 0 — ADR-0007 puts identity in crest and weapon both,
@@ -396,9 +420,87 @@ track for the Sword into `Idle`; `CharacterRig.show_idle_weapon` sets it once in
 `play_state()` instead, same mechanism as `show_crest`, and `tests/render_rig_frames.gd` turns it
 off to keep comparing against the pack's own hidden-sword frames.
 
-## Ideas for later
+**Re-measured tasks 2 and 10 with both real rigs in place, plus two checklist items closed on
+premise, not on new work.** Same device, Redmi Note 13 (`2312FPCA6G`), rebuilt clean first:
 
-- Nothing yet.
+```
+$ tools/deploy.sh
+```
+
+**Task 2, wipe in/out — still inconclusive, and now the inconsistency is between two active runs,
+not just against an idle baseline.** Panel toggle moved to `adb shell input tap 125 53`. Two
+wipe-drive runs (6 and 7 taps inside a `WINDOW=15 tools/frametime.sh` window) bracketed by two
+idle baselines (panel open, no taps):
+
+```
+$ WINDOW=15 tools/frametime.sh          # idle baseline 1
+dropped=2,2,0   worst_gap=29.9,25.2,0.0 ms
+
+$ WINDOW=15 tools/frametime.sh          # wipe-drive 1 (6 taps)
+dropped=2,0,0   worst_gap=47.0,0.0,0.0 ms   # the dropped=2 sub-window has draw_calls_max=3 —
+                                             # panel hadn't opened yet, matches the frame-index-5
+                                             # artifact below, not the wipe
+
+$ WINDOW=15 tools/frametime.sh          # wipe-drive 2 (7 taps)
+dropped=6,6,4   worst_gap=28.2,31.1,31.3 ms  # draw_calls_max=28 throughout — panel actively toggling
+
+$ WINDOW=15 tools/frametime.sh          # idle baseline 2
+dropped=1,1,0,0 worst_gap=25.1,27.7,0.0,0.0 ms
+```
+
+Wipe-drive 1 reads clean against both baselines. Wipe-drive 2, same device, same session, ~2
+minutes later, reads dropped=4–6 per window — clearly above either baseline's 0–2 ceiling, a real
+signal rather than noise. The two active runs disagree with each other more than either agrees
+with its neighbouring baseline. Left unchecked in `tasks.md`: "one run passes, one doesn't" is not
+the same as "passes."
+
+**Task 10, cold-start warming — the frame-5 stall reproduces unchanged; the comparison window is
+just noisier today.** Two `tools/frametime.sh --cold` runs, tapped ~400 ms after `am start -W`
+returned (an immediate tap is still silently dropped), each followed by a same-session
+`tools/frametime.sh` window with the panel already open:
+
+```
+cold 1   TotalTime=976ms    first window: dropped=1 worst_gap=43.3ms@5   next window: dropped=0
+later 1  dropped=0,0,1 worst_gap=0.0,0.0,25.4ms                          (frame idx 113, not 5)
+
+cold 2   TotalTime=1030ms   first window: dropped=2 worst_gap=45.1ms@5   next window: dropped=0
+later 2  dropped=0,1,0 worst_gap=0.0,25.2,0.0ms                          (frame idx 20, not 5)
+```
+
+Both `TotalTime`s comfortably under the ≤3.0s budget, in line with the 1059–1074 ms range from the
+first pass. The frame-5 stall is unchanged from the earlier finding — same location, same 1–2
+dropped magnitude, reproduced on both runs. What's different this time is that the "later" window
+isn't a clean `dropped=0` either — it shows its own single drop, but at a different frame index
+(20, 113 — mid-window) matching this session's idle-baseline noise floor (task 2 above), not the
+cold-open pattern. So first-vs-later reads roughly 1–2 vs. 0–1 today, narrower than the earlier
+note's clean 1-vs-0 gap — but that's the reference window getting noisier, not the frame-5 stall
+getting fixed. Left unchecked for the same reason as before: the specific artifact the verify line
+is testing for is present in both cold runs and absent from both later windows.
+
+**"Author the pawn and knight helmets and weapons" and "Black-side recolour on the pawn" — checked
+in `tasks.md`, closed on premise, not on new art.** Neither task's original ask exists any more.
+No helmet is a rig part on either side — both packs bake it into `Head.png` — and identity lives in
+the procedural crest plus the imported weapon instead
+([ADR-0007](adr/0007-identity-in-crest-and-weapon-on-a-shared-body.md)). There is no tint shader
+either: white is the Valkyrie pack, black is the Skeleton Warrior pack, two different characters,
+not one recoloured. `shaders/side_recolor.gdshader` stays on disk, unreferenced (confirmed by
+`grep -rn side_recolor` over the repo returning nothing) — the `CanvasGroup` + `ShaderMaterial`
+failure recorded in task 8 above is a real on-device finding kept for whoever next tries a custom
+material, but nothing was built to replace it. Both checklist entries carry an explicit "superseded,
+nothing authored" closing note rather than being silently checked.
+
+## 2026-08-17 — Day 2 (continued): the art plan collapsed and was replaced by two asset packs
+
+Everything below happened on the 17th and belongs to Day 2's scope, not Day 3's — the rig and the
+duel panel, not the clash. It is filed as its own dated entry because it is a different day, and
+because what it records is a reversal rather than progress along the plan.
+
+**A note on where this text was found.** These sections were appended to the end of the file over
+the course of the day, and the end of the file was inside `## Ideas for later`. The entire day's
+log — the pack adoption, the licence, the silhouette test, the whole import — sat under a heading
+meaning "not doing this now". Moved here and the heading returned to the bottom, empty. Worth
+recording as its own small lesson: appending to the end of a document is not the same as adding to
+it, and nothing in the tooling notices the difference.
 
 ### ADRs became drafts
 
@@ -902,3 +1004,31 @@ Left open on purpose: the Day-10 requirement that a fresh clone builds the APK i
 art in the repo, CI needs the packs from somewhere — a stored artifact, or a documented manual
 step that makes a public clone build in two actions instead of one. That is a decision for the day
 the repo is published, not today.
+
+### Day 2 closed — where it actually stands
+
+Five of twelve checklist items pass. The other seven are not one pile.
+
+**Two were closed as void, nothing built.** Helmets and weapons as authored parts do not exist —
+the packs bake the helmet into `Head.png` and identity moved to the crest. The black-side recolour
+shader has no premise left, because white and black are two different packs rather than one
+character tinted twice. That second one is the item that *failed* on device; its `CanvasGroup` +
+`ShaderMaterial` finding is kept verbatim for whoever next reaches for a custom material.
+
+**Two are parked behind a measurement that will not settle.** Wipe in/out and boot warming. Both
+were re-measured on the 17th against the much cleaner numbers the imported rig produces, and
+neither came back conclusive: the wipe passed one run and failed the next, and the cold-start
+frame-5 stall is unchanged — the gap to the reference window narrowed only because the reference
+got noisier. See the note above about a budget that cannot gate anything.
+
+**Three are genuinely undone.** `Face 02` (blink) is unimported on both sides, so faces are two of
+three. Board sprite export has not started. And this entry.
+
+What Day 2 was actually for — a rig on the phone at the PvZ bar, with the duel panel around it —
+exists, and is better than the plan aimed at. What it cost is a plan that no longer describes the
+project, three documents rewritten to catch up, and two performance budgets that the only
+available device cannot currently prove.
+
+## Ideas for later
+
+- Nothing yet.

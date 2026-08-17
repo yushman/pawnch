@@ -295,6 +295,31 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > (WhatsApp DNS retries, Bluetooth power stats, MIUI telemetry all present in logcat during
       > the window) that drops vsyncs even at idle, so the wipe-active numbers cannot be cleanly
       > attributed to the wipe itself. Real number, reported honestly rather than chased to zero.
+      >
+      > **2026-08-17 — re-run with two rigs and two idle baselines in the same session, still
+      > unchecked: one clean run, one that isn't.** Redmi Note 13 (`2312FPCA6G`), rebuilt and
+      > installed via `tools/deploy.sh` first. Drove `adb shell input tap 125 53` (the panel toggle
+      > moved since the earlier note) inside two separate `WINDOW=15 tools/frametime.sh` windows,
+      > and took an idle baseline (panel open, no taps) immediately before and after:
+      > ```
+      > idle baseline 1  dropped=2,2,0     worst_gap=29.9,25.2,0.0 ms
+      > wipe-drive 1     dropped=2,0,0     worst_gap=47.0,0.0,0.0 ms   (dropped=2 on a draw_calls_max=3
+      >                                                                 sub-window — panel not yet open,
+      >                                                                 matches the generic frame-index-5
+      >                                                                 artifact seen everywhere below, not
+      >                                                                 the wipe)
+      > wipe-drive 2     dropped=6,6,4     worst_gap=28.2,31.1,31.3 ms  (draw_calls_max=28 throughout —
+      >                                                                 panel actively toggling)
+      > idle baseline 2  dropped=1,1,0,0   worst_gap=25.1,27.7,0.0,0.0 ms
+      > ```
+      > First wipe-drive run reads clean — no worse than either idle baseline, i.e. indistinguishable
+      > from background noise, which would pass this task. Second wipe-drive run (same device, same
+      > session, ~2 minutes later, 7 taps instead of 6) shows dropped=4–6 per 5 s window, clearly above
+      > both idle baselines' 0–2 ceiling — a real signal, not noise, that active wiping costs more
+      > dropped vsyncs than idle on this device. The two wipe-drive runs disagree with each other by
+      > more than either agrees with its neighbouring baseline, so this is not a "chase to zero"
+      > problem, it is a genuine run-to-run inconsistency. Left unchecked: the honest reading is "one
+      > run passes, one run doesn't," not "passes."
 
 - [x] **Master body generation and the nine shared parts.** One generation in the
       `queen-simple-v1` style at ~2.9 heads tall to lock the look, then the nine body parts
@@ -400,7 +425,7 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > the `Hurt`/`Dying` frames that swap to `Face 03` match the pack's own renders at IoU 0.9979 /
       > 0.9981. Still two of three: `Face 02` (blink) is not imported on either side.
 
-- [ ] **Author the pawn and knight helmets and weapons.** Two helmets (cone, horse head) on one
+- [x] **Author the pawn and knight helmets and weapons.** Two helmets (cone, horse head) on one
       canvas size and one crown anchor; two weapons (sword, lance) on one grip anchor with
       trimmed canvases. Hair baked into the helmet. All on one 2048×2048 page, outlines baked in,
       no per-part material.
@@ -444,6 +469,15 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > weapons, while `tests/render_rig_frames.gd` sets it false so the IoU still compares against
       > the pack's own un-armed frames. This task's title is still "author helmets and weapons" and
       > no helmet exists as a part on either side, so the box stays empty.
+      >
+      > **2026-08-17 — closed. Superseded, nothing authored.** There are no helmets as rig parts and
+      > none will be authored: both Craftpix packs bake the helmet into `Head.png`, it is not
+      > separable in the vector source either, and per
+      > [ADR-0007](../../../docs/adr/0007-identity-in-crest-and-weapon-on-a-shared-body.md) identity
+      > moved entirely to the procedural chess-piece crest (`tools/crests.py`) plus the imported
+      > weapon — no helmet, cone or horse-head, was ever drawn. Checking the box to stop this reading
+      > as open work; every note above it stays as the record of how the premise changed twice before
+      > landing here.
 
 - [x] **Cue markers on the timeline.** `impact`, `recoil` and `exit` emitted from the animation
       timeline, with nothing consuming them yet.
@@ -460,7 +494,7 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > `recoil t=0.850`, `exit t=1.550`, and `PAWNCH_CUES impact, recoil, exit` from a listener on
       > the `cue_fired` signal. Cue placement on a real clash animation is still Day 3's.
 
-- [ ] **Black-side recolour on the pawn.** One shader parameter over the whole character.
+- [x] **Black-side recolour on the pawn.** One shader parameter over the whole character.
       *Verify:* white and black pawns side by side are unambiguous at a glance; the draw-call
       count with both on screen is unchanged apart from the one extra material batch.
       > Fails on-device. Opened the duel panel on the Redmi Note 13 (`scenes/duel_panel.tscn`
@@ -500,6 +534,18 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > half is answered honestly rather than assumed: `draw_calls_max` went **18 → 28** with the
       > second texture set, not the "+1 extra material batch" this line expected, because the two
       > sides share no page and cannot batch. See the draw-call task below.
+      >
+      > **2026-08-17 — closed. Superseded, nothing built.** This is the item that *failed* on
+      > device, and that finding stands verbatim above — it is a real `CanvasGroup` +
+      > `ShaderMaterial` result under the Compatibility renderer, worth keeping for whoever next
+      > tries a custom material. But the premise it was testing is gone: white is the Valkyrie pack
+      > and black is the Skeleton Warrior pack, two different characters from two different Craftpix
+      > packs, not one character tinted two ways
+      > ([ADR-0007](../../../docs/adr/0007-identity-in-crest-and-weapon-on-a-shared-body.md)). There
+      > is no tint shader and no second palette to build, and `shaders/side_recolor.gdshader` is on
+      > disk but loaded by nothing. Checking the box to stop this reading as open work — the
+      > shader was never made to work and nothing was authored to replace it with; the record above,
+      > including the failing on-device measurement, is left untouched.
 
 - [ ] **Board sprite export.** Flatten the pawn's and the knight's idle poses to ~110 px sprites
       for the board atlas.
@@ -532,6 +578,30 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > reproducibly — not the trivial pass this was hoping for. Frame index 5 is extremely early
       > (~83 ms into the window), overlapping Godot's own well-documented cold-start cost
       > (ADR-0006), so this may not be separable from engine startup at all — noted, not resolved.
+      >
+      > **2026-08-17 — re-run with both real rigs, still unchecked: the frame-5 stall is unchanged,
+      > and today's "later" reference window isn't clean either.** Redmi Note 13 (`2312FPCA6G`),
+      > `tools/deploy.sh` first for a clean install. Twice: `tools/frametime.sh --cold`, tapped
+      > `adb shell input tap 125 53` ~400 ms after the script's own `am start -W` line printed
+      > (same silently-dropped-immediate-tap issue as before), read the first window it captured.
+      > ```
+      > cold 1   TotalTime=976ms   first window: dropped=1 worst_gap=43.3ms@5   next window: dropped=0
+      > cold 2   TotalTime=1030ms  first window: dropped=2 worst_gap=45.1ms@5   next window: dropped=0
+      > ```
+      > Both `TotalTime`s comfortably under the ≤3.0 s budget (earlier note: 1059–1074 ms across
+      > four runs — consistent). The frame-5 stall reproduces exactly as before, same location, same
+      > 1–2 dropped magnitude — nothing changed about it. What did change: a same-session "later,
+      > non-cold" window, run right after each cold window with the panel already open, is *not* a
+      > clean `dropped=0` today the way the earlier note's later windows were:
+      > `dropped=0,0,1` and `dropped=0,1,0` (worst_gap 25.2–25.4 ms, at frame indices 20 and 113 — mid
+      > window, not frame 5). That single drop matches this same session's idle-baseline noise floor
+      > (`dropped=1,1,0,0` and `2,2,0`, wipe task above), i.e. it is device background load, not a
+      > cold-open effect. So "first vs. later" now reads roughly 1–2 vs. 0–1: closer than the earlier
+      > note's clean 1-vs-0, but that is because today's baseline is noisier, not because the frame-5
+      > stall was fixed — it is still there, still reproducible, still unexplained. Left unchecked:
+      > the verify line's "first open meets the same budget as a later one" is not honestly a clean
+      > pass when the specific artifact it is testing for (the frame-5 stall) is present in both cold
+      > runs and absent from both later windows.
 
 - [x] **Draw-call measurement and atlas occupancy with the panel open.** Both characters idling,
       panel open.
@@ -574,7 +644,7 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > for the same reason as before — `assets/rig/valkyrie/` and `assets/rig/skeleton_warrior/` are
       > loose PNGs, not pages.
 
-- [ ] **Devlog entry for Day 2.** The measured frame times, draw-call count and atlas occupancy
+- [x] **Devlog entry for Day 2.** The measured frame times, draw-call count and atlas occupancy
       with their commands, whether the silhouette test needed a redraw and how many, whether the
       expression overlays survived, and how much of the two half-days the rig actually consumed
       against its estimate.
@@ -596,3 +666,16 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > appended: the IoU for both packs with the commands, the scale decision and its 14 px
       > residual, the `open_pack()` reproducibility bug, and the on-device fps / dropped-vsync /
       > `draw_calls_max` numbers. Same two `TODO:`s, still open.
+      >
+      > **2026-08-17 — closed.** Both `TODO:`s are answered in the text and removed. The half-days
+      > question is answered by refusing it: the estimate covered authoring that never happened,
+      > because the plan was replaced mid-day by the asset packs, so there is nothing to compare
+      > against — and Day 3 does not slide, which is what the watch clause was for. Raw hours were
+      > not tracked and the entry says so rather than guessing; the verify line does not ask for
+      > them. The "what a stranger would question" TODO is answered with three items ranked, the
+      > largest being the abandonment of the art plan itself.
+      >
+      > Also fixed while here: every 2026-08-17 section had been appended to the end of the file,
+      > and the end of the file was inside `## Ideas for later` — the whole day's log was filed
+      > under a heading meaning "not doing this". Moved into a dated
+      > `## 2026-08-17 — Day 2 (continued)` entry with `## Ideas for later` returned to the bottom.
