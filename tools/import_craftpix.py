@@ -44,8 +44,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # gets closest, 1008 px, 14 px (1.4%) short of the valkyrie.
 RASTER = {"valkyrie": 1.75, "skeleton_warrior": 2.0}
 
-ANIMATIONS = ["Idle", "Slashing", "Hurt", "Dying"]
-LOOPING = {"Idle"}
+ANIMATIONS = ["Idle", "Idle Blinking", "Slashing", "Hurt", "Dying"]
+# "Idle Blinking" is the same 600 ms cyclic breathing pose as "Idle", just with
+# Face 02 keyed in partway through, so it loops the same way once anything plays
+# it -- nothing does yet (scripts/character_rig.gd only ever calls play_state
+# with "Idle"), so this has no observable effect today.
+LOOPING = {"Idle", "Idle Blinking"}
 # Cue markers (impact / recoil / exit) are Day 3's to place on a real clash; this
 # animation is the standing proof that the timeline mechanism still fires.
 CUE_DEMO = [("impact", 0.55), ("recoil", 0.85), ("exit", 1.55)]

@@ -78,7 +78,11 @@ def check_transforms(scml_path, frames, raster, frame_ms=33.0):
 	worst_pos = worst_rot = worst_scale = 0.0
 	rows = 0
 	for line in open(path):
-		anim, index, name, x, y, rot, sx = line.split()
+		# anim names can carry a space ("Idle Blinking"); the other six fields
+		# never do, since sprite names are alnum-only (node_name() strips the rest).
+		fields = line.split()
+		anim = " ".join(fields[:-6])
+		index, name, x, y, rot, sx = fields[-6:]
 		anim_obj = rig.animations[anim]
 		t = float(index) * frame_ms
 		world = anim_obj.bone_world(t)

@@ -17,7 +17,7 @@ const CANVAS := 900
 const ORIGIN := Vector2(450, 750)
 const FRAME_MS := 33.0
 # Frame counts are the pack's: PNG Sequences/<name>/ at its 33 ms interval.
-const SEQUENCES := {"Idle": 18, "Slashing": 12, "Hurt": 12, "Dying": 15}
+const SEQUENCES := {"Idle": 18, "Idle Blinking": 18, "Slashing": 12, "Hurt": 12, "Dying": 15}
 
 
 func _initialize() -> void:

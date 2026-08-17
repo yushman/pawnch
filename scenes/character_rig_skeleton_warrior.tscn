@@ -1,18 +1,19 @@
-[gd_scene load_steps=21 format=3]
+[gd_scene load_steps=23 format=3]
 
 [ext_resource type="Script" path="res://scripts/character_rig.gd" id="1_script"]
 [ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/body.png" id="t_0"]
 [ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/face_01.png" id="t_1"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/face_03.png" id="t_2"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/head.png" id="t_3"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/left_arm.png" id="t_4"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/left_hand.png" id="t_5"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/left_leg.png" id="t_6"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/right_arm.png" id="t_7"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/right_hand.png" id="t_8"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/right_leg.png" id="t_9"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/slashfx.png" id="t_10"]
-[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/sword.png" id="t_11"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/face_02.png" id="t_2"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/face_03.png" id="t_3"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/head.png" id="t_4"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/left_arm.png" id="t_5"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/left_hand.png" id="t_6"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/left_leg.png" id="t_7"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/right_arm.png" id="t_8"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/right_hand.png" id="t_9"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/right_leg.png" id="t_10"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/slashfx.png" id="t_11"]
+[ext_resource type="Texture2D" path="res://assets/rig/skeleton_warrior/sword.png" id="t_12"]
 [ext_resource type="Texture2D" path="res://assets/rig/crest_pawn.png" id="t_crest"]
 
 [sub_resource type="Animation" id="Animation_Idle"]
@@ -211,6 +212,219 @@ tracks/17/path = NodePath("Rig/bone_006/bone_007:rotation")
 tracks/17/interp = 1
 tracks/17/loop_wrap = true
 tracks/17/keys = {
+"times": PackedFloat32Array(0.0, 0.1, 0.4, 0.6),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [-0.005588, 0.030743, -0.041887, -0.005588]
+}
+
+[sub_resource type="Animation" id="Animation_Idle_Blinking"]
+resource_name = "Idle Blinking"
+length = 0.6
+loop_mode = 1
+tracks/0/type = "value"
+tracks/0/path = NodePath("Rig/bone_006/bone_000:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0.0, 0.3, 0.6),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [Vector2(89.922643, -80.630766), Vector2(91.920619, -80.540822), Vector2(89.922643, -80.630766)]
+}
+
+tracks/1/type = "value"
+tracks/1/path = NodePath("Rig/bone_006/bone_000:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0.0, 0.3, 0.6),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [-2.960071, -2.838387, -2.960071]
+}
+
+tracks/2/type = "value"
+tracks/2/path = NodePath("Rig/bone_006/bone_007/Face:texture")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0.0, 0.45, 0.6),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 1,
+"values": [ExtResource("t_1"), ExtResource("t_2"), ExtResource("t_1")]
+}
+
+tracks/3/type = "value"
+tracks/3/path = NodePath("Rig/bone_006/bone_002:position")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0.0, 0.3, 0.6),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [Vector2(91.103295, 57.709457), Vector2(93.101271, 57.799402), Vector2(91.103295, 57.709457)]
+}
+
+tracks/4/type = "value"
+tracks/4/path = NodePath("Rig/bone_006/bone_002:rotation")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0.0, 0.3, 0.6),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [-3.299531, -3.43542, -3.299531]
+}
+
+tracks/5/type = "value"
+tracks/5/path = NodePath("Rig/bone_006/bone_002/bone_003:rotation")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [-6.279749]
+}
+
+tracks/6/type = "value"
+tracks/6/path = NodePath("Rig/bone_004:position")
+tracks/6/interp = 1
+tracks/6/loop_wrap = true
+tracks/6/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(35.717791, -63.374233)]
+}
+
+tracks/7/type = "value"
+tracks/7/path = NodePath("Rig/bone_004:rotation")
+tracks/7/interp = 1
+tracks/7/loop_wrap = true
+tracks/7/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [-4.759972]
+}
+
+tracks/8/type = "value"
+tracks/8/path = NodePath("Rig/bone_005:position")
+tracks/8/interp = 1
+tracks/8/loop_wrap = true
+tracks/8/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(-39.607362, -63.374233)]
+}
+
+tracks/9/type = "value"
+tracks/9/path = NodePath("Rig/bone_005:rotation")
+tracks/9/interp = 1
+tracks/9/loop_wrap = true
+tracks/9/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [-4.616935]
+}
+
+tracks/10/type = "value"
+tracks/10/path = NodePath("Rig/bone_006/bone_002/bone_003/Sword:modulate:a")
+tracks/10/interp = 1
+tracks/10/loop_wrap = true
+tracks/10/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.0]
+}
+
+tracks/11/type = "value"
+tracks/11/path = NodePath("Rig/SlashFX:position")
+tracks/11/interp = 1
+tracks/11/loop_wrap = true
+tracks/11/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(-69.522225, -596.938682)]
+}
+
+tracks/12/type = "value"
+tracks/12/path = NodePath("Rig/SlashFX:rotation")
+tracks/12/interp = 1
+tracks/12/loop_wrap = true
+tracks/12/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.0]
+}
+
+tracks/13/type = "value"
+tracks/13/path = NodePath("Rig/SlashFX:scale")
+tracks/13/interp = 1
+tracks/13/loop_wrap = true
+tracks/13/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(0.5, 0.5)]
+}
+
+tracks/14/type = "value"
+tracks/14/path = NodePath("Rig/SlashFX:modulate:a")
+tracks/14/interp = 1
+tracks/14/loop_wrap = true
+tracks/14/keys = {
+"times": PackedFloat32Array(0.0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.0]
+}
+
+tracks/15/type = "value"
+tracks/15/path = NodePath("Rig/bone_006:position")
+tracks/15/interp = 1
+tracks/15/loop_wrap = true
+tracks/15/keys = {
+"times": PackedFloat32Array(0.0, 0.3, 0.6),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [Vector2(0.840336, -66.386555), Vector2(0.840336, -72.386555), Vector2(0.840336, -66.386555)]
+}
+
+tracks/16/type = "value"
+tracks/16/path = NodePath("Rig/bone_006:rotation")
+tracks/16/interp = 1
+tracks/16/loop_wrap = true
+tracks/16/keys = {
+"times": PackedFloat32Array(0.0, 0.3, 0.6),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [-1.577646, -1.615784, -1.577646]
+}
+
+tracks/17/type = "value"
+tracks/17/path = NodePath("Rig/bone_006/bone_007:position")
+tracks/17/interp = 1
+tracks/17/loop_wrap = true
+tracks/17/keys = {
+"times": PackedFloat32Array(0.0, 0.1, 0.4, 0.6),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(122.691953, 0.0), Vector2(122.691953, 0.0), Vector2(122.691953, 0.0), Vector2(122.691953, 0.0)]
+}
+
+tracks/18/type = "value"
+tracks/18/path = NodePath("Rig/bone_006/bone_007:rotation")
+tracks/18/interp = 1
+tracks/18/loop_wrap = true
+tracks/18/keys = {
 "times": PackedFloat32Array(0.0, 0.1, 0.4, 0.6),
 "transitions": PackedFloat32Array(1, 1, 1, 1),
 "update": 0,
@@ -462,7 +676,7 @@ tracks/2/keys = {
 "times": PackedFloat32Array(0.0),
 "transitions": PackedFloat32Array(1),
 "update": 1,
-"values": [ExtResource("t_2")]
+"values": [ExtResource("t_3")]
 }
 
 tracks/3/type = "value"
@@ -674,7 +888,7 @@ tracks/2/keys = {
 "times": PackedFloat32Array(0.0, 0.3, 0.35, 0.375, 0.5),
 "transitions": PackedFloat32Array(1, 1, 1, 1, 1),
 "update": 1,
-"values": [ExtResource("t_2"), ExtResource("t_2"), ExtResource("t_2"), ExtResource("t_2"), ExtResource("t_2")]
+"values": [ExtResource("t_3"), ExtResource("t_3"), ExtResource("t_3"), ExtResource("t_3"), ExtResource("t_3")]
 }
 
 tracks/3/type = "value"
@@ -877,6 +1091,7 @@ _data = {
 "Dying": SubResource("Animation_Dying"),
 "Hurt": SubResource("Animation_Hurt"),
 "Idle": SubResource("Animation_Idle"),
+"Idle Blinking": SubResource("Animation_Idle_Blinking"),
 "Slashing": SubResource("Animation_Slashing"),
 "cue_demo": SubResource("Animation_cue_demo")
 }
@@ -898,7 +1113,7 @@ position = Vector2(-43.502342, 58.111028)
 rotation = -1.523213
 scale = Vector2(0.5, 0.5)
 z_index = 4
-texture = ExtResource("t_6")
+texture = ExtResource("t_7")
 centered = false
 offset = Vector2(0.0, 0.0)
 modulate = Color(1, 1, 1, 1.0)
@@ -913,7 +1128,7 @@ position = Vector2(-33.871316, 71.365595)
 rotation = -1.66625
 scale = Vector2(0.5, 0.5)
 z_index = 5
-texture = ExtResource("t_9")
+texture = ExtResource("t_10")
 centered = false
 offset = Vector2(0.0, 0.0)
 modulate = Color(1, 1, 1, 1.0)
@@ -933,7 +1148,7 @@ position = Vector2(405.164176, -257.980987)
 rotation = -4.699952
 scale = Vector2(0.5, 0.5)
 z_index = 7
-texture = ExtResource("t_3")
+texture = ExtResource("t_4")
 centered = false
 offset = Vector2(0.0, 0.0)
 modulate = Color(1, 1, 1, 1.0)
@@ -963,7 +1178,7 @@ position = Vector2(-30.707767, 70.049787)
 rotation = -1.733524
 scale = Vector2(0.5, 0.5)
 z_index = 9
-texture = ExtResource("t_8")
+texture = ExtResource("t_9")
 centered = false
 offset = Vector2(0.0, 0.0)
 modulate = Color(1, 1, 1, 1.0)
@@ -973,7 +1188,7 @@ position = Vector2(-32.69342, 76.186794)
 rotation = -1.745469
 scale = Vector2(0.5, 0.5)
 z_index = 10
-texture = ExtResource("t_7")
+texture = ExtResource("t_8")
 centered = false
 offset = Vector2(0.0, 0.0)
 modulate = Color(1, 1, 1, 1.0)
@@ -994,7 +1209,7 @@ position = Vector2(-43.097523, 67.816758)
 rotation = -1.529072
 scale = Vector2(0.5, 0.5)
 z_index = 1
-texture = ExtResource("t_11")
+texture = ExtResource("t_12")
 centered = false
 offset = Vector2(-4.4368, -4.413696)
 modulate = Color(1, 1, 1, 0.0)
@@ -1004,7 +1219,7 @@ position = Vector2(-58.24298, 50.055349)
 rotation = -1.376837
 scale = Vector2(0.5, 0.5)
 z_index = 2
-texture = ExtResource("t_5")
+texture = ExtResource("t_6")
 centered = false
 offset = Vector2(0.0, 0.0)
 modulate = Color(1, 1, 1, 1.0)
@@ -1014,7 +1229,7 @@ position = Vector2(-52.69542, 47.915901)
 rotation = -1.373401
 scale = Vector2(0.5, 0.5)
 z_index = 3
-texture = ExtResource("t_4")
+texture = ExtResource("t_5")
 centered = false
 offset = Vector2(0.0, 0.0)
 modulate = Color(1, 1, 1, 1.0)
@@ -1034,7 +1249,7 @@ position = Vector2(-69.522225, -596.938682)
 rotation = 0.0
 scale = Vector2(0.5, 0.5)
 z_index = 0
-texture = ExtResource("t_10")
+texture = ExtResource("t_11")
 centered = false
 offset = Vector2(0.0, 0.0)
 modulate = Color(1, 1, 1, 0.0)
