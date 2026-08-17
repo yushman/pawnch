@@ -27,6 +27,7 @@ var _last_usec := 0
 var _window_start_usec := 0
 var _intervals: Array[float] = []
 var _busy: Array[float] = []
+var _draw_calls: Array[float] = []
 var _vsync_ms := 16.667
 
 
@@ -42,6 +43,7 @@ func _process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
 	_intervals.append((now - _last_usec) / 1000.0)
 	_busy.append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
+	_draw_calls.append(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
 	_last_usec = now
 
 	if now - _window_start_usec < int(REPORT_INTERVAL_SEC * 1_000_000):
@@ -59,6 +61,7 @@ func _report() -> void:
 	# The first interval of a window spans the reporting gap, not a frame.
 	var intervals := _intervals.slice(1)
 	var busy := _busy.slice(1)
+	var draw_calls := _draw_calls.slice(1)
 
 	var wall_ms := 0.0
 	var dropped := 0
@@ -76,8 +79,9 @@ func _report() -> void:
 	var p := func(q: float) -> float:
 		return busy[mini(busy.size() - 1, int(busy.size() * q))]
 
-	print("PAWNCH_FRAME frames=%d fps=%.1f dropped=%d worst_gap=%.1fms@%d busy_p50=%.2f busy_p95=%.2f busy_max=%.2f vsync=%.2f" % [
+	draw_calls.sort()
+	print("PAWNCH_FRAME frames=%d fps=%.1f dropped=%d worst_gap=%.1fms@%d busy_p50=%.2f busy_p95=%.2f busy_max=%.2f draw_calls_max=%d vsync=%.2f" % [
 		intervals.size(), intervals.size() * 1000.0 / wall_ms,
 		dropped, worst_interval, worst_drop_at,
-		p.call(0.50), p.call(0.95), busy[-1], _vsync_ms,
+		p.call(0.50), p.call(0.95), busy[-1], int(draw_calls[-1]), _vsync_ms,
 	])

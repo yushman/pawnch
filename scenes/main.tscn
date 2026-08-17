@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://bxqmc0y3vqfgk"]
+[gd_scene load_steps=3 format=3 uid="uid://bxqmc0y3vqfgk"]
 
 [ext_resource type="Script" path="res://scripts/frame_probe.gd" id="1_probe"]
+[ext_resource type="PackedScene" path="res://scenes/duel_panel.tscn" id="2_panel"]
 
 [node name="Main" type="ColorRect"]
 anchors_preset=15
@@ -12,3 +13,15 @@ color=Color(0.14, 0.55, 0.28, 1)
 
 [node name="FrameProbe" type="Node" parent="."]
 script=ExtResource("1_probe")
+
+[node name="DuelPanel" parent="." instance=ExtResource("2_panel")]
+board = NodePath("..")
+
+[node name="DebugButton" type="Button" parent="."]
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 224.0
+offset_bottom = 84.0
+text = "Duel"
+
+[connection signal="pressed" from="DebugButton" to="DuelPanel" method="toggle"]

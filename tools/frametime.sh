@@ -50,7 +50,9 @@ fi
 
 echo "$REPORTS"
 echo
-echo "worst frame over the whole window:"
-echo "$REPORTS" | sed -E 's/.*worst=([0-9.]+)ms.*/\1/' | sort -rn | head -1 | xargs -I{} echo "  {} ms"
-echo "reporting windows containing a frame over 20 ms:"
-echo "$REPORTS" | grep -c "over20ms=[1-9]" | xargs -I{} echo "  {} of $(echo "$REPORTS" | wc -l | tr -d ' ')"
+TOTAL="$(echo "$REPORTS" | wc -l | tr -d ' ')"
+echo "worst gap over the whole window:"
+echo "$REPORTS" | sed -E 's/.*worst_gap=([0-9.]+)ms.*/\1/' | sort -rn | head -1 | xargs -I{} echo "  {} ms"
+echo "reporting windows with at least one dropped vsync:"
+DROPPED_WINDOWS="$(echo "$REPORTS" | grep -c "dropped=0 " || true)"
+echo "  $((TOTAL - DROPPED_WINDOWS)) of $TOTAL"
