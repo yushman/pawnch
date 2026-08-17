@@ -876,3 +876,29 @@ off the generated `Rig` node instead of hardcoding 1.75. `scenes/character_rig.t
 replaced by the two per-family scenes; `scenes/duel_panel.tscn` instances one of each.
 `assets/rig/skeleton_warrior/` added (12 parts, 264 KB). The skeleton's head-detaches-on-defeat beat
 is not implemented — that is Day 3 keyframe work.
+
+### ADR-0007 edited in place — publication plan
+
+Edited, not superseded, per the working rhythm in `CLAUDE.md`. The consequence recording
+ADR-0003's licensing caution now carries the plan for making the repo public alongside the launch
+article: **the article links the repo, the repo does not carry the pack art.** `.gitignore` gains
+the two `assets/rig/<family>/` directories and the README tells the reader to download the two free
+packs and run one command.
+
+The reason this costs almost nothing is worth naming, because it was not the reason ADR-0009 was
+written. "The art pipeline is code" was adopted because nobody here draws. It turns out to also
+mean the repo does not need the *output* — it needs the converter, and both
+`tools/import_craftpix.py` and `tools/verify_rig.py` already take the pack `.zip` as their
+argument. The crests stay committed; they are procedural and have no pack lineage.
+
+Also recorded there, against my own earlier framing: the strict reading is caution rather than a
+direct consequence of the licence text. Clause 2.2's redistribution limb says "useable to another
+end user **via the app**", which is about an application exposing its assets rather than a git
+repository, and its other limb is resale, which publishing for free is not. A public repo carrying
+the parts is arguably outside both. Avoided regardless — the downside is asymmetric and the
+workaround is one line of `.gitignore`.
+
+Left open on purpose: the Day-10 requirement that a fresh clone builds the APK in CI. Without the
+art in the repo, CI needs the packs from somewhere — a stored artifact, or a documented manual
+step that makes a public clone build in two actions instead of one. That is a decision for the day
+the repo is published, not today.

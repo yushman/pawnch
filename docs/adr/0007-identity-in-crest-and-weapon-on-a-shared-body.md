@@ -432,6 +432,28 @@ nobody is judging and exposes in the frames the checkpoint is about.
   this creates with the Day-10 requirement that a fresh clone builds the APK in CI. This is a
   **live conditional risk, not a resolved one** — it activates the day the repo is made public,
   which the planned launch article makes plausible.
+
+  **Plan for publication, added 2026-08-17.** The article links the repo; the repo does not carry
+  the art. `.gitignore` gains `assets/rig/valkyrie/` and `assets/rig/skeleton_warrior/`, and the
+  README tells the reader to download the two free packs and run one command. This costs almost
+  nothing because [ADR-0009](0009-the-art-pipeline-is-code.md) already made it true: nothing is
+  hand-assembled, so the repo needs the *converter*, not the output. Both
+  `tools/import_craftpix.py` and `tools/verify_rig.py` already take the pack `.zip` as their
+  argument. The crests are procedural and stay committed; they have no pack lineage.
+
+  The cost is the Day-10 requirement above: a public clone cannot build the APK until the packs
+  are present. Either CI carries them as a stored artifact, or the public clone documents one
+  manual step and builds in two actions rather than one. Decide it when the repo is published,
+  not before.
+
+  Worth recording that the strict reading is **caution, not a direct consequence of the text**.
+  Clause 2.2 forbids redistribution that makes the files useable to another end user *"via the
+  app"* — a phrase about an application exposing its assets, not about a git repository — and its
+  other limb is *resale*, which publishing for free is not. So a public repo carrying the parts is
+  arguably outside both limbs. It is avoided anyway: the downside is asymmetric (a complaint
+  against an article with an audience, against one line of `.gitignore`), and the workaround is
+  nearly free. If the ambiguity is ever worth removing outright, written permission from Craftpix
+  settles this *and* option (c) above, which clause 3.1.1 otherwise blocks.
 - **The art direction changed.** ~1.55 heads tall against 2.9 is a visibly different game. Every
   concept image, every framing number derived from a 33% head, and the reader's mental picture of
   this project from ADR-0003 onward, are now wrong.
