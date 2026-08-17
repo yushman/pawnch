@@ -57,7 +57,8 @@ If a day ends behind, do not borrow from Day 12. Fire the next cut.
 1. **M5 → 2 bespoke clashes** (pawn + knight); queen falls back to the generic strike. −1
 2. **M1 → reduced ruleset** — no castling, no en passant, auto-promote to queen. −0.5
 3. **M2 → pass-and-play**, bot removed. −1 *(costs metric 3, so it is late)*
-4. **M4 → 4 piece types with real art**; rook and bishop use recoloured pawn silhouettes. −1
+4. **M4 → 4 piece types with distinct crests**; rook and bishop share a generic crest, told apart
+   by weapon alone. −1
 5. **Never cut: M3 + M6 + one bespoke clash at full quality.** If everything else is placeholder
    and that one knight-takes-pawn clash reads as obviously better than Ani Chess 3D's, the
    sprint succeeded. If the clash is mediocre but all six pieces animate, it failed.
@@ -91,12 +92,14 @@ animation and write the ADR. Do not keep fighting the pipeline.
 
 ## Day 2 — The rig and the duel panel
 
-- [ ] One shared cutout/bone rig at **Plants vs Zombies bar**: chunky readable silhouette,
-      exaggerated proportions, parts hinged for squash-and-stretch. Idle + hit + defeat states.
-      (~4h, *M4 1/3*)
-- [ ] Pawn and knight silhouette/weapon swaps on that rig, plus the duel panel: framing,
-      background, and the wipe in/out. Silhouette test — both characters must be identifiable as
-      black shapes at thumbnail size. (~4h, *M4 2/3*)
+- [ ] Import and convert the two Craftpix rigs — Valkyrie for white, Skeleton for black — from
+      their Spriter (`.scml`) projects into Godot: two separate rigs, one atlas page per side,
+      12 parts white / 11 black (7 shared body parts, head, face, weapon, shield white-only)
+      ([ADR-0007](adr/0007-identity-in-crest-and-weapon-on-a-shared-body.md)). Idle + hit + defeat
+      states come from the packs' own authored `Idle`, `Hurt` and `Dying` animations. (~4h, *M4 1/3*)
+- [ ] Pawn and knight identity via `tools/crests.py`-drawn crests mounted rigidly on the head,
+      plus the duel panel: framing, background, and the wipe in/out. Silhouette test — both
+      characters must be identifiable as black shapes at 110 px. (~4h, *M4 2/3*)
 
 **Done when:** on the phone, a debug button wipes the duel panel in, shows a knight and a pawn
 idling in frame at ≥50 fps, and wipes out. No fight yet.
@@ -108,9 +111,12 @@ happens with less polish, and that is the correct trade. Do not slide Day 3.
 
 ## Day 3 — The clash — ⛔ KILL CHECKPOINT
 
-- [ ] Knight-takes-pawn bespoke clash on the shared rig: wind-up, charge, impact, recoil,
-      knockout. Impact lands within the first ~0.6 s. Timeline cue markers for `impact`,
-      `recoil`, `exit`. (~4h, *M5 1/4*)
+- [ ] Knight-takes-pawn bespoke clash: wind-up, charge, impact, recoil, knockout. Impact lands
+      within the first ~0.6 s. Timeline cue markers for `impact`, `recoil`, `exit`. Defeat is
+      asymmetric by side ([ADR-0007](adr/0007-identity-in-crest-and-weapon-on-a-shared-body.md)):
+      the skeleton's whole head detaches and flies off carrying its crest, the valkyrie's defeat
+      uses the pack's own `Dying` animation with the pain face swapped in — keyframes on parts
+      Day 2 already built, no new art. (~4h, *M5 1/4*)
 - [ ] Juice on those cues: hitstop, screen shake, one impact VFX burst, 2 SFX, haptic thump.
       Debug overlay logging the ms delta between the `impact` cue and each of the SFX and haptic
       dispatches. (~4h, *M6 1/2*)
@@ -132,8 +138,12 @@ who does not care about your feelings. The PvZ framing exists to make this answe
 by a tired person — "does it look good" is not.
 
 - **Yes →** Day 4. The wedge is real and the remaining eight days are worth spending.
-- **No → the one retry.** Days 4–5 become the art-direction retry: push *further* into PvZ —
-  chunkier silhouettes, smear frames, more exaggerated squash, oversized VFX. Chess core slides
+- **No → the one retry.** Days 4–5 become the art-direction retry: push further into PvZ through
+  whatever the rig and effects actually allow — smear poses, more exaggerated squash and stretch,
+  oversized VFX, tighter timing. Redrawing chunkier silhouettes is off the table; the art
+  direction is the packs' now ([ADR-0007](adr/0007-identity-in-crest-and-weapon-on-a-shared-body.md))
+  and nobody here draws. That is a weaker retry than the one this plan was written against —
+  motion and effects are all there is left to pull with, not line weight. Chess core slides
   to Days 6–7, and **cut order steps 1 and 2 fire immediately** to pay for it. Re-test end of
   Day 5, same four criteria, same question.
 - **No twice (end of Day 5) → stop. Kill the project.** This is the kill criterion from
@@ -201,9 +211,9 @@ and en passant. Decide it today; deciding it late is how the sprint ends with th
 
 ## Day 7 — The other four pieces
 
-- [ ] Remaining 4 piece types as silhouette/weapon swaps on the shared rig — bishop, rook,
-      queen, king — plus the black-side palette swap. Silhouette test applies to all six.
-      (~4h, *M4 3/3*)
+- [ ] Remaining 4 piece types as crest and weapon swaps, on each side's shared body — bishop,
+      rook, queen, king ([ADR-0007](adr/0007-identity-in-crest-and-weapon-on-a-shared-body.md)).
+      Silhouette test applies to all six crests. (~4h, *M4 3/3*)
 - [ ] The shared generic strike animation covering rook, bishop and king. This is the one that
       guarantees **no capture is ever silent** (failure mode 3). (~4h, *M5 3/4*)
 

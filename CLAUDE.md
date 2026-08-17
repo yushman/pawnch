@@ -35,7 +35,10 @@ InputRouter → GameSession → RulesAdapter        (ADR-0004, vendored + perft-
 Four decisions carry the whole design; read the ADR before changing anything that touches one.
 
 - The clash is a **full-screen cutaway**, not on-board animation — [ADR-0002](docs/adr/0002-cutaway-clash-instead-of-on-board-animation.md).
-- **One shared 2D cutout rig, Plants vs Zombies art direction, 6 animations not 36** — [ADR-0003](docs/adr/0003-one-shared-2d-rig-pvz-art-direction.md).
+- **One shared 2D cutout rig, Plants vs Zombies art direction, 6 animations not 36** — [ADR-0003](docs/adr/0003-one-shared-2d-rig-pvz-art-direction.md),
+  refined by [ADR-0007](docs/adr/0007-identity-in-crest-and-weapon-on-a-shared-body.md): the rig comes
+  from two Craftpix packs — white = valkyrie, black = skeleton — and identity lives in a crest plus
+  weapon on one shared body per side.
 - **Chess rules are vendored behind a five-function adapter**, never hand-rolled — [ADR-0004](docs/adr/0004-off-the-shelf-chess-rules-behind-an-adapter.md).
 - The bot is **deliberately capture-greedy, not a real engine** — [ADR-0005](docs/adr/0005-capture-greedy-bot-not-a-real-engine.md).
 
@@ -115,9 +118,11 @@ rely on it.
 `/opsx:explore` sits before all of that and is optional: a thinking stance for chewing on
 an idea, never a step that writes code.
 
-The four-command set is a local choice, not a global one: `openspec update` run inside
-this repo re-generates all eight `opsx` commands from the user's global config. If that
-happens, delete the four extras again — the flow above is still the flow.
+All eight `opsx` commands are present in the repo, but **only the four above are the
+flow.** `propose`, `sync`, `verify` and `bulk-archive` are the four-stage ritual this
+project deliberately cut; they are kept because `openspec update` regenerates them from
+the user's global config anyway, and deleting them every time was churn. Reaching for one
+is a signal that the workflow has drifted, not a shortcut.
 
 The MVP plan in `docs/mvp-plan.md` says *what* gets built and when; OpenSpec changes say
 *what the behavior is*. They are not substitutes for each other.
@@ -129,9 +134,16 @@ The MVP plan in `docs/mvp-plan.md` says *what* gets built and when; OpenSpec cha
   the command that produced them, and any decision you would have to explain to a stranger.
   Write it even on days when nothing worked — especially then. These details are
   unrecoverable after the fact, and they are the raw material for the launch article.
-- **Write an ADR when a decision is expensive to reverse** or when a reader would question
-  it. Never edit an accepted ADR to reflect a reversal — mark it superseded and write a
-  new one.
+- **Write an ADR when a decision is expensive to reverse** or when a reader would question it.
+- **Every ADR in this repo is a draft and may be edited in place.** If a decision turns out to
+  be wrong, or if a better result is visibly available, change the ADR — do not preserve a
+  decision you no longer believe just because it was written down. `Status: Accepted` means
+  "currently in force", not "frozen". Superseding with a new ADR stays available and is the
+  right move when the *reasoning* is worth keeping side by side, but it is a choice, not the
+  rule. Git holds the previous text, so nothing is lost by editing — provided the change is
+  committed.
+- When an ADR is edited rather than superseded, say so in the devlog entry for that day. The
+  ADR then reads as current truth while the devlog carries what changed and why.
 
 Scope discipline: the non-goals list in `docs/product-analysis.md` is a set of decisions,
 not a backlog. A good idea arriving mid-build goes under `## Ideas for later` in the

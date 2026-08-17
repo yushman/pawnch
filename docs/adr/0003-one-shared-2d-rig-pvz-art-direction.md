@@ -23,6 +23,39 @@ The forces:
   **52/100** from 370 reviews. Fidelity did not save it.
 - Round-1 validation searched the asset marketplaces and found **no** off-the-shelf pack that
   does rigged per-piece combat animation. Whatever we build, we build.
+
+  **Re-searched 2026-08-16, and the original reason was wrong while the conclusion held.**
+  Modular cutout rigs with separated limbs exist in quantity once you search for
+  "cutout / modular / paper-doll 2D character" instead of for chess pieces fighting — CraftPix
+  and GameDev Market both sell chibi knights split into 30-odd parts, and one GameDev Market pack
+  ships explicit swappable helmet slots, which is very close to what [ADR-0007](0007-identity-in-crest-and-weapon-on-a-shared-body.md)
+  specifies. There is even a rigged chess-piece character sheet.
+
+  They are ruled out on **licensing, not style**. CraftPix, GameDev Market and the Unity Asset
+  Store all permit commercial use in a compiled game while separately forbidding the *original
+  asset files* from being extractable or redistributable by a third party. A public repository
+  containing the raw PNG/PSD/AI sources is precisely that, regardless of the APK being closed.
+  This is the same shape of constraint that ruled out the AGPL chess engine in
+  [ADR-0004](0004-off-the-shelf-chess-rules-behind-an-adapter.md), moved from code to art.
+
+  The workaround — keeping purchased art out of version control, as `assets/concepts/` already is
+  — collides with the Day-10 requirement that a fresh clone build the APK in CI. That is the real
+  cost, and it is why it was not taken mid-sprint.
+
+  **Note, 2026-08-17 — this reasoning is not stale, and a later pass should not report it as
+  such.** The two Craftpix packs adopted in
+  [ADR-0007](0007-identity-in-crest-and-weapon-on-a-shared-body.md) carry the same clause 2.2 shape:
+  a public repository holding the raw parts is the redistribution ("useable to another end user")
+  it forbids. What changed is only that it does not bite *today* — the GitHub remote
+  (`yushman/pawnch`) returns 404 unauthenticated, i.e. the repo is currently private. But
+  `.gitignore` covers `assets/concepts/` and not `assets/rig/`, where pack-derived parts land, so
+  they are committed as things stand, and the Day-10 collision named above is exactly the one this
+  creates. Live conditional risk, not resolved: it activates if the repo is ever made public, which
+  the project's planned launch article makes plausible.
+
+  The one genuinely clean licence tier, CC0 (Kenney, OpenGameArt, gameart2d), produced no
+  candidate confirmed to hit the thick-outline PvZ bar this ADR sets. **If art is ever bought for
+  this project, check the extraction clause before the style.**
 - The target audience is 6–12. The animation must read instantly at a glance, not reward study.
 - ≤ ~60 draw calls during the clash on an Adreno 610 class GPU.
 
