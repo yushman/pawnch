@@ -320,6 +320,86 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > more than either agrees with its neighbouring baseline, so this is not a "chase to zero"
       > problem, it is a genuine run-to-run inconsistency. Left unchecked: the honest reading is "one
       > run passes, one run doesn't," not "passes."
+      >
+      > **2026-08-17 — discriminating experiment: rigs suppressed, drops persisted. Not the rigs.
+      > Still unchecked.** Two prior runs disagreed with each other, so more sampling would not have
+      > settled anything; instead isolated the cause. Temporarily hid both `CharacterRig` instances in
+      > `scripts/duel_panel.gd:_ready()` (`for c in _characters: c.visible = false`, one line, reverted
+      > immediately after — `git diff scripts/duel_panel.gd` is empty right now) so the exact same
+      > `AnimationPlayer` `wipe_in`/`wipe_out` runs on the exact same schedule with no rig content to
+      > draw. `tools/deploy.sh` first for a clean install of the suppressed build, then the same method
+      > as the prior note — idle baseline, `WINDOW=15 tools/frametime.sh` while driving
+      > `adb shell input tap 125 53` seven times (~1.8 s apart), idle baseline again, all in one
+      > session, Redmi Note 13 (`2312FPCA6G`):
+      > ```
+      > idle baseline 1 (rigs hidden)   dropped=0,0,0        worst_gap=0.0,0.0,0.0 ms      draw_calls_max=3
+      > wipe-drive (rigs hidden)        dropped=2,7,2         worst_gap=26.7,28.4,29.9 ms   draw_calls_max=3,5,5
+      > idle baseline 2 (rigs hidden)   dropped=0,0,2         worst_gap=0.0,0.0,26.5 ms     draw_calls_max=5
+      > ```
+      > `draw_calls_max` staying at 3–5 throughout (against 28 in the prior full-rig run) confirms the
+      > suppression actually worked — the two rigs drew nothing. Dropped vsyncs did **not** disappear:
+      > wipe-drive (2, 7, 2) sits clearly above both bracketing idle baselines (0/0/0 and 0/0/2) taken
+      > in the same session, immediately before and after. That rules out "two rigs becoming visible" as
+      > the cost outright — there was no rig content to become visible — and rules out "just device
+      > background noise, unattributable" too, since the signal is consistently and repeatably above
+      > this session's own idle floor while the wipe is actively driven. Neither of the two outcomes this
+      > task anticipated fits cleanly; the honest reading is a third one: **the wipe *mechanism* itself
+      > is the cost**, independent of what it reveals.
+      >
+      > Looked at what that mechanism actually does, to name a fix rather than guess: `main.tscn` wires
+      > `DuelPanel.board = NodePath("..")` — `board` is the `Main` scene root itself, the parent of
+      > `DuelPanel`, `FrameProbe` and `DebugButton` alike. `duel_panel.gd`'s `open()`/`close()` each call
+      > `create_tween().tween_property(board, "scale", ...)` — a **new** `Tween` allocated every toggle,
+      > scaling the **entire tree root** (everything, including the panel doing the scaling) for the
+      > duration of the wipe, on top of the `AnimationPlayer` resizing `Frame/Mask` under
+      > `clip_contents = true`. Cheapest fix, not implemented: (1) stop allocating a fresh `Tween` per
+      > open/close — hold one as a member, `kill()` and restart it instead of calling
+      > `create_tween()` again; (2) once a real `BoardView` exists (Day 4, ADR-0011), tween only that
+      > node's scale, not the whole tree root — `board` should never again be the panel's own ancestor.
+      > Whether either actually moves the number is untested; not chasing it further without asking, per
+      > the brief. Left unchecked: the wipe animation's own device cost is a real, attributable signal on
+      > this device, separate from the rig question the task set out to answer.
+      >
+      > **2026-08-17 — both fixes from the prior note applied. Cut the dropped-vsync magnitude roughly
+      > in half; still measurably above idle, so still unchecked.** `scenes/main.tscn`: `board` no longer
+      > names the scene root — added a `Board` `ColorRect` sibling of `DuelPanel` (a stand-in for the
+      > real board; `BoardView` is Day 4/ADR-0011) and rewired `board = NodePath("../Board")`, so the
+      > thing that recedes is beside the panel, not its ancestor. `scripts/duel_panel.gd`: `open()`/
+      > `close()` now go through one `_tween_board_scale()` helper that holds the `Tween` in a field and
+      > `kill()`s it before starting the next one instead of calling `create_tween()` per toggle, and
+      > `close_now()` also kills a still-running tween before snapping `scale` back (closes a latent gap
+      > in the skip path); `_layout()` sets `board.pivot_offset = board.size * 0.5` every layout pass so
+      > the 0.94 recede scales about the board's centre instead of drifting up-left from the default
+      > top-left pivot.
+      >
+      > Re-measured on the Redmi Note 13 (`2312FPCA6G`), rigs **visible** (the real configuration, not
+      > the rig-suppressed experiment above), `tools/deploy.sh` first, three idle/wipe-drive pairs back to
+      > back in one session, each wipe-drive driven by seven `adb shell input tap 125 53` ~1.8 s apart
+      > (same method as the prior notes) and each idle baseline by a bare `WINDOW=15 tools/frametime.sh`:
+      > ```
+      > idle 1 (panel closed, draw_calls_max=3)   dropped=1,0,0   worst_gap=44.6,0.0,0.0 ms   (frame-5 cold-
+      >                                                                                          start artifact,
+      >                                                                                          not the wipe)
+      > wipe-drive 1  (draw_calls_max=28)          dropped=0,0,2   worst_gap=0.0,0.0,25.9 ms
+      > idle 2        (draw_calls_max=28)          dropped=0,1,1   worst_gap=0.0,26.0,27.0 ms
+      > wipe-drive 2  (draw_calls_max=28)          dropped=1,3,3   worst_gap=25.5,28.9,32.1 ms
+      > idle 3        (draw_calls_max=28)          dropped=1,1,0   worst_gap=25.6,25.4,0.0 ms
+      > wipe-drive 3  (draw_calls_max=28)          dropped=0,2,2   worst_gap=0.0,28.9,27.5 ms
+      > idle 4        (draw_calls_max=28)          dropped=0,1,1   worst_gap=0.0,25.1,25.6 ms
+      > ```
+      > Excluding idle 1's cold-start window (panel not yet open, the known frame-5 artifact from
+      > ADR-0006, unrelated to the wipe): idle windows sum to 6 dropped over 9 windows (mean 0.67, max 1);
+      > wipe-drive windows sum to 13 over 9 windows (mean 1.44, max 3). Against the pre-fix note above —
+      > wipe-drive up to `dropped=6,6,4` against an idle ceiling of `dropped=0-2` — this is a real
+      > improvement: worst-case dropped vsyncs roughly halved (6-7 → 3) and the mean gap over idle
+      > narrowed too. But it did not close: wipe-drive is consistently above idle across all three
+      > independent pairs in this session (never the reverse), not the "one run clean, one run isn't"
+      > coin-flip the pre-fix data showed — so this reads as a smaller but still real cost, not noise.
+      > Left unchecked. What remains unexplained: candidates not yet isolated are the `Frame/Mask` resize
+      > under `clip_contents = true` running every frame of the animation regardless of the board tween,
+      > and the board `ColorRect` itself being a full 1080×2400 fill-rate cost to scale even with a single
+      > reused `Tween`. Not chasing further without asking, per the brief — the three prescribed changes
+      > are in and the record above is the honest result.
 
 - [x] **Master body generation and the nine shared parts.** One generation in the
       `queen-simple-v1` style at ~2.9 heads tall to lock the look, then the nine body parts
@@ -399,7 +479,7 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > `os.walk` reached first, which was `Skeleton_Warrior_3` (547 native units, not 504) and would
       > have picked the wrong raster factor and compared against the wrong reference frames.
 
-- [ ] **Author the smooth face and its three expression overlays.** Neutral, hit and defeat, on
+- [x] **Author the smooth face and its three expression overlays.** Neutral, hit and defeat, on
       one shared eye/mouth grid, cropped to what the least-covering helmet leaves visible.
       *Verify:* each overlay swaps onto the face with no repositioning. **Droppable:** if the rig
       has eaten both half-days, cut this and carry it as a Days 4–5 art-retry lever. Day 3 still
@@ -424,6 +504,56 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > `assets/rig/skeleton_warrior/` carries `Face 01` and `Face 03` on the same shared anchor, and
       > the `Hurt`/`Dying` frames that swap to `Face 03` match the pack's own renders at IoU 0.9979 /
       > 0.9981. Still two of three: `Face 02` (blink) is not imported on either side.
+      >
+      > **2026-08-17 — `Face 02` imported on both sides, all three now in, checked.** The pack's blink
+      > animation is `Idle Blinking` (confirmed from the `.scml`: `<animation id="2"
+      > name="Idle Blinking" length="600" .../>`, identical 600 ms length to `Idle`), and it was
+      > unimported purely because `tools/import_craftpix.py:47`'s `ANIMATIONS` list never referenced
+      > it, so `Face 02` never made it into the rasterised set. Added it:
+      > `ANIMATIONS = ["Idle", "Idle Blinking", "Slashing", "Hurt", "Dying"]`. Checked the two stop
+      > conditions named for this task before running anything:
+      > - **Hierarchy assertion** (`import_craftpix.py:151-155`, `Animation.bones`/`.objects` must match
+      >   `Idle`'s): diffed `Idle Blinking`'s mainline key 0 against `Idle`'s directly in both `.scml`
+      >   files — byte-for-byte identical bone/object graph on both packs. Does not break; the importer
+      >   confirms it (no `SystemExit`) on both re-runs below.
+      > - **Looping flag** (`LOOPING = {"Idle"}`): added `Idle Blinking` to it too.
+      >   `Idle Blinking` is the same 600 ms cyclic breathing pose as `Idle`, just with `Face 02` keyed
+      >   in partway through, so it should loop the same way whenever something eventually plays it —
+      >   and nothing does yet: `scripts/character_rig.gd` only ever calls `play_state("Idle")`
+      >   (`_ready()` and `play_state()` are the only two call sites), so this flag has zero observable
+      >   effect today either way. Judgment call, flagged rather than silently made: reasonable default,
+      >   one line, trivially reversible, no current behaviour depends on it.
+      >
+      > Re-ran the importer for both families: `python3 tools/import_craftpix.py <valkyrie>.zip` →
+      > `parts  14 rasterised at 1.75x -> assets/rig/valkyrie/` (13 → 14, the new `face_02.png`);
+      > `python3 tools/import_craftpix.py <skeleton>.zip` → `parts  13 rasterised at 2x ->
+      > assets/rig/skeleton_warrior/` (12 → 13). Both exit 0, no hierarchy `SystemExit`.
+      >
+      > `tools/verify_rig.py` picks up new `ANIMATIONS` entries automatically (it imports the list from
+      > `import_craftpix`), so it rendered and IoU-checked `Idle Blinking` against the pack's own
+      > `PNG Sequences/Idle Blinking/` frames (18 frames, same count as `Idle`) with no changes needed —
+      > except one bug the space in `"Idle Blinking"` exposed: `check_transforms()`'s
+      > `anim, index, name, x, y, rot, sx = line.split()` assumed exactly 7 whitespace-separated fields,
+      > which breaks the moment the animation name itself contains a space. Fixed by slicing from the
+      > end instead (`fields[:-6]` joined back into `anim`, `fields[-6:]` unpacked as before) — sprite
+      > node names can never contain spaces (`node_name()` strips everything but `[A-Za-z0-9]`), so this
+      > is unambiguous. Both packs, full results:
+      > ```
+      > valkyrie   Idle Blinking   18 frames   mean IoU 0.9988   min IoU 0.9976   max size delta 1px
+      >            ALL (75 frames, all 5 anims) mean IoU 0.9988  min IoU 0.9976
+      >            transforms  900 sprite samples: max 0.0004 px, 0.0001 deg, 0.00000 scale
+      >            crest: PAWNCH_CREST_UPRIGHT PASS, Slashing PASS, Dying PASS
+      > skeleton   Idle Blinking   18 frames   mean IoU 0.9978   min IoU 0.9975   max size delta 1px
+      >            ALL (75 frames, all 5 anims) mean IoU 0.9979  min IoU 0.9972
+      >            transforms  825 sprite samples: max 0.0004 px, 0.0001 deg, 0.00000 scale
+      >            crest: PAWNCH_CREST_UPRIGHT PASS, Slashing PASS, Dying PASS
+      > ```
+      > `Idle Blinking`'s own IoU (0.9988 / 0.9978) matches `Idle`'s (0.9988 / 0.9977) on both sides —
+      > the whole-image and per-part checks are exactly as clean as the frame the previous two notes
+      > already passed on. That is this task's verify line: the overlay (`Face 02`, wherever the pack's
+      > own timeline keys it in during `Idle Blinking`) swaps onto the shared `Face` anchor with no
+      > repositioning, on both sides. All three face variants (`Face 01`/`02`/`03`) are now imported on
+      > both `assets/rig/valkyrie/` and `assets/rig/skeleton_warrior/`. Checking the box.
 
 - [x] **Author the pawn and knight helmets and weapons.** Two helmets (cone, horse head) on one
       canvas size and one crown anchor; two weapons (sword, lance) on one grip anchor with
@@ -553,6 +683,31 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       characters as in the panel.
       > Out of scope: depends on real rig art (Days 5/7) and a phone to judge readability at
       > board scale. Not attempted against placeholders.
+      >
+      > **2026-08-17 — superseded by ADR-0011, moved to Day 4. Not implemented, box stays empty.**
+      > [ADR-0011](../../../docs/adr/0011-rotated-board-tall-cells-and-baked-pieces.md) (committed
+      > 9b9127f, the day after this task was last touched) respecifies board pieces in three ways this
+      > task's text no longer matches:
+      > - **Size:** not "~110 px flattened idle poses" — ADR-0011 decision 2 sets cells at **135×170**
+      >   (board 1080×1360) to give a standing figure headroom without one piece occluding the one
+      >   behind it, so a board piece is now a **~170 px** baked sprite, not ~110 px.
+      > - **Packing:** not one loose export per type — decision 3 packs all 32 pieces (both colours,
+      >   all six types, baked from the same rigs `tests/render_rig_frames.gd` already renders with)
+      >   into **one atlas**, batching to one or two draw calls instead of 32 individual sprites.
+      > - **Orientation and identity:** the board itself is rotated 90° clockwise, white fixed on the
+      >   left (decision 1, never mirrored — a mirror would reflect the position), and decision 4 adds
+      >   a **crest glyph on the tile itself** (the same `tools/crests.py` shapes already on the
+      >   character's head, drawn larger, ~60–70 px at the bottom of the cell) as a second, independent
+      >   channel for piece-type legibility — something this task's text never mentioned because it
+      >   didn't exist yet.
+      >
+      > This is Day 4 work (`docs/mvp-plan.md`) belonging to a future change,
+      > `board-and-move-presentation` — `BoardView`, `GameSession` and the board capability do not
+      > exist anywhere in the repo yet (ADR-0011's own Context section says so). Implementing board
+      > sprite export now, against this task's original ~110 px single-sprite text, would produce
+      > assets at the wrong size and shape (square-ish vs. the tall 135×170 cell) that Day 4 would
+      > either have to regenerate or awkwardly retrofit. Leaving the box unchecked and not attempted;
+      > original task text left untouched above.
 
 - [ ] **Warm the panel's assets at boot.** Everything the panel draws is loaded and its materials
       touched during startup, so the first open after a cold start does not compile a shader or
@@ -602,6 +757,35 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > the verify line's "first open meets the same budget as a later one" is not honestly a clean
       > pass when the specific artifact it is testing for (the frame-5 stall) is present in both cold
       > runs and absent from both later windows.
+      >
+      > **2026-08-17 — tested the reframing directly: the frame-5 stall survives with the panel never
+      > drawn. It is engine cold start (ADR-0006), not unwarmed panel content. Still unchecked, cause
+      > now identified.** The clue sitting unnoticed in the wipe task's own note above — `dropped=2 on
+      > a draw_calls_max=3 sub-window — panel not yet open` — says the frame-5 window can show the
+      > stall before the panel has drawn anything, which would mean this task's verify line is testing
+      > the wrong thing. Tested it head-on: `WINDOW=15 tools/frametime.sh --cold`, twice, **without
+      > ever tapping the debug button** — `draw_calls_max=3` for every window in both runs confirms the
+      > panel genuinely never opened. Redmi Note 13 (`2312FPCA6G`), clean build via `tools/deploy.sh`
+      > beforehand:
+      > ```
+      > cold 1 (panel never opened)   TotalTime=1035ms  window 1: dropped=2 worst_gap=46.6ms@5 draw_calls_max=3
+      >                                                  window 2: dropped=1 worst_gap=25.3ms@244 draw_calls_max=3
+      > cold 2 (panel never opened)   TotalTime=1012ms  window 1: dropped=1 worst_gap=47.9ms@5 draw_calls_max=3
+      >                                                  window 2: dropped=0 worst_gap=0.0ms@-1 draw_calls_max=3
+      > ```
+      > The frame-5 stall reproduces in both runs — same location (frame index 5), same 40–48 ms
+      > `worst_gap`, same 1–2 `dropped` magnitude as every prior note — with `draw_calls_max=3`
+      > throughout, i.e. board-only, no panel content ever rendered. Both `TotalTime`s are consistent
+      > with every earlier measurement (~1.0–1.07 s, well under the ≤3.0 s budget). Since the stall is
+      > present when there is nothing for `_warm()` to have warmed and nothing for an unwarmed panel to
+      > have stalled on, it cannot be attributed to panel asset warming — it is Godot's own documented
+      > engine cold-start cost (ADR-0006), reproducing at the same frame index regardless of what the
+      > scene contains. This task's verify line ("first open meets the same budget as a later one") is
+      > therefore testing the wrong thing, exactly as suspected: there is no "first open" event distinct
+      > from the engine's own startup stall to warm away. Left unchecked — the literal verify line still
+      > cannot honestly pass, since even a later window is not always `dropped=0` on this device — but
+      > the cause is now recorded rather than "unexplained," and this is not a panel-warming gap: nothing
+      > further should be attempted here without a change to what's being asked.
 
 - [x] **Draw-call measurement and atlas occupancy with the panel open.** Both characters idling,
       panel open.

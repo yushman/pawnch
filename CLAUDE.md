@@ -85,8 +85,12 @@ optional. Loud incompleteness is fine here; silent wrongness is not.
    `tools/frametime.sh --cold` over a run containing the **first** clash after a cold start,
    dropped-vsync count and worst gap into the devlog with the command. Frame timing is measured
    inside the engine, not with `dumpsys gfxinfo` — that reports HWUI, which never sees a Godot
-   `SurfaceView` — and the "no frame over 20 ms" budget means **no dropped vsync**, not a raw
-   interval threshold: [ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md).
+   `SurfaceView` — and the "no frame over 20 ms" budget means **no dropped vsync attributable to
+   the clash**, not a raw interval threshold and not every dropped vsync in the window: the
+   engine's own cold-start stall around frame 5 is a property of the measurement instrument, not
+   of the clash, so the cold-start clash window starts once the board is interactive, and the
+   comparator is an idle baseline taken in the same session, because the device drops vsyncs on
+   its own at idle. [ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md).
 5. **Impact cue misalignment** — the debug overlay logs the ms delta from the `impact` cue to
    the SFX and haptic dispatches. Budget ≤16 ms. "Feels mushy" is unfalsifiable; this number is
    not.

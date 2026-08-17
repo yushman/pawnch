@@ -20,6 +20,7 @@ const BOARD_RECEDE_SCALE := 0.94
 
 var _board_scale := Vector2.ONE
 var _is_open := false
+var _board_tween: Tween
 
 
 func _ready() -> void:
@@ -37,6 +38,12 @@ func _layout() -> void:
 	_frame.size = frame_rect.size
 	_background.size = PANEL_SIZE
 	_mask.size.y = PANEL_SIZE.y
+	# A Control scales about its top-left by default; pivot it about its own
+	# centre so the recede reads as "pull back", not "drift up-left". Set on
+	# every layout pass, not just _ready(), since board's size tracks the
+	# viewport too.
+	if board is Control:
+		board.pivot_offset = board.size * 0.5
 
 
 # Centres the 1080x1500 panel in the 1080x1920 safe band, itself centred in
@@ -60,24 +67,36 @@ func open() -> void:
 	_is_open = true
 	_anim.stop()
 	_anim.play("wipe_in")
-	if board:
-		create_tween().tween_property(board, "scale", _board_scale * BOARD_RECEDE_SCALE, 0.15)
+	_tween_board_scale(_board_scale * BOARD_RECEDE_SCALE, 0.15)
 
 
 func close() -> void:
 	_is_open = false
 	_anim.stop()
 	_anim.play("wipe_out")
-	if board:
-		create_tween().tween_property(board, "scale", _board_scale, 0.3)
+	_tween_board_scale(_board_scale, 0.3)
 
 
 func close_now() -> void:
 	_is_open = false
 	_mask.size.x = 0
 	_board_dim.modulate.a = 0
+	if _board_tween and _board_tween.is_valid():
+		_board_tween.kill()
 	if board:
 		board.scale = _board_scale
+
+
+# One reused Tween rather than a fresh allocation per toggle — also fixes the
+# competing-tweens race when the panel is toggled faster than a transition
+# completes.
+func _tween_board_scale(target_scale: Vector2, duration: float) -> void:
+	if not board:
+		return
+	if _board_tween and _board_tween.is_valid():
+		_board_tween.kill()
+	_board_tween = create_tween()
+	_board_tween.tween_property(board, "scale", target_scale, duration)
 
 
 # Failure mode 4 (system-analysis.md): the first open after a cold start

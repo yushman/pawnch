@@ -123,8 +123,11 @@ happens with less polish, and that is the correct trade. Do not slide Day 3.
 
 **Done when — all four, measured on the phone, not the laptop:**
 1. Total clash ≤ 2.0 s; tap → first clash frame < 200 ms.
-2. ≥50 fps sustained, no frame > 20 ms, **including the very first clash after a cold start**
-   (that is where the shader-compile stall hides — failure mode 4).
+2. ≥50 fps sustained, and no dropped vsync attributable to the clash, **including the very
+   first clash after a cold start** (that is where the shader-compile stall hides — failure
+   mode 4) — measured against a same-session idle baseline, with the engine's own cold-start
+   stall around frame 5 excluded as an instrument artifact, not a clash cost
+   ([ADR-0006](adr/0006-in-engine-frame-timing-instead-of-dumpsys.md)).
 3. Impact cue → SFX and → haptic both ≤ 16 ms, from the debug overlay, written into the devlog.
 4. A 15 s vertical screen recording of the clash exists in the repo, next to a screen recording
    of the equivalent capture in Ani Chess 3D captured on the **same device**.

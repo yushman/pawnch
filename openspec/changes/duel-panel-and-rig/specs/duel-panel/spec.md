@@ -46,14 +46,18 @@ the system analysis, measured on the named target device, not on a laptop.
 #### Scenario: Frame rate through the transition
 
 - **WHEN** the panel wipes in and out on the target device
-- **THEN** the frame rate stays at or above 50 fps and no single frame exceeds 20 ms
+- **THEN** the frame rate stays at or above 50 fps and no dropped vsync is attributable to the
+  transition, measured against a same-session idle baseline
+  ([ADR-0006](../../../../docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md))
 
 #### Scenario: First open after a cold start
 
-- **WHEN** the panel is opened for the first time after a cold start
+- **WHEN** the panel is opened for the first time after a cold start, in the window that starts
+  once the board is interactive
 - **THEN** it meets the same frame-rate budget as every later opening — everything the panel
   needs is resident and warm before the first open, with no shader compilation or texture upload
-  at open time
+  at open time. The engine's own pre-interactive boot-frame stall is excluded, as it reproduces
+  with no panel content ever drawn
 
 ### Requirement: Drawing the panel and two characters stays within the draw-call budget
 

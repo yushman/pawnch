@@ -1029,6 +1029,97 @@ exists, and is better than the plan aimed at. What it cost is a plan that no lon
 project, three documents rewritten to catch up, and two performance budgets that the only
 available device cannot currently prove.
 
+### Blink imported, board export retired, the wipe cost found and fixed, and the cold-start budget rewritten
+
+Four things closed out today's batch, in the order they actually happened.
+
+**`Face 02` (blink) imported on both sides — the faces task is now closed.** The pack's blink
+animation is `Idle Blinking` (`.scml`: `<animation id="2" name="Idle Blinking" length="600" .../>`,
+same 600 ms length as `Idle`), left out of the animation list by mistake rather than by design.
+Added `"Idle Blinking"` to `ANIMATIONS` and to the looping set, re-ran `import_craftpix` (13 → 14
+parts, the new `face_02.png`) and the IoU check against the pack's own `PNG Sequences/Idle
+Blinking/` frames: valkyrie 18 frames, mean IoU 0.9988, min 0.9976; skeleton 18 frames, mean IoU
+0.9978, min 0.9975; both max size delta 1px. All three face variants are in on both sides now
+(`openspec/changes/duel-panel-and-rig/tasks.md`, faces task, checked).
+
+**Board sprite export retired under ADR-0011, not implemented.** The task as originally written
+specified ~110 px single-sprite exports; [ADR-0011](adr/0011-rotated-board-tall-cells-and-baked-pieces.md),
+committed the day after that text was last touched, respecifies board pieces three ways the old
+text no longer matches — 135×170 cells (not ~110 px square), one packed 32-piece atlas (not loose
+per-type exports), and a rotated board with a crest glyph baked onto the tile. Building against
+the stale spec now would produce assets Day 4 has to regenerate. Left unimplemented, box stays
+unchecked; this is Day-4 work for a future `board-and-move-presentation` change, not this one.
+
+**The wipe's device cost, found and fixed — real improvement, still not a clean pass.** The
+`duel-panel-and-rig` wipe task's last note (above) traced the dropped-vsync signal that survived
+even with both rigs hidden to the wipe mechanism itself: `scenes/main.tscn` wired
+`DuelPanel.board = NodePath("..")`, i.e. `board` was the panel's own parent, so every open/close
+scaled the entire scene tree — panel included — and allocated a fresh `Tween` per toggle.
+Fixed all three prescribed changes: `scenes/main.tscn` gets a `Board` `ColorRect` as a sibling of
+`DuelPanel` (a stand-in for the real board — `BoardView` is Day 4/ADR-0011) with
+`board = NodePath("../Board")`, so `board` is never again the panel's ancestor;
+`scripts/duel_panel.gd`'s `open()`/`close()` now share one `_tween_board_scale()` helper that
+holds the `Tween` in a field and `kill()`s it before starting the next one, instead of a fresh
+`create_tween()` per toggle (`close_now()` also kills a stray tween before snapping `scale` back,
+closing a latent gap in the skip path); and `_layout()` sets `board.pivot_offset = board.size *
+0.5` every pass, so the 0.94 recede scales about the board's centre instead of drifting up-left
+from the default top-left pivot.
+
+Re-measured on the Redmi Note 13 (`2312FPCA6G`), `tools/deploy.sh` first, rigs **visible** (the
+real configuration now), three idle/wipe-drive pairs back to back in one session — each
+wipe-drive seven `adb shell input tap 125 53` ~1.8 s apart, each idle baseline a bare
+`WINDOW=15 tools/frametime.sh`:
+
+```
+idle 1 (panel closed)   dropped=1,0,0   worst_gap=44.6,0.0,0.0 ms    (frame-5 cold-start artifact, not the wipe)
+wipe-drive 1             dropped=0,0,2   worst_gap=0.0,0.0,25.9 ms
+idle 2                   dropped=0,1,1   worst_gap=0.0,26.0,27.0 ms
+wipe-drive 2              dropped=1,3,3   worst_gap=25.5,28.9,32.1 ms
+idle 3                   dropped=1,1,0   worst_gap=25.6,25.4,0.0 ms
+wipe-drive 3              dropped=0,2,2   worst_gap=0.0,28.9,27.5 ms
+idle 4                   dropped=0,1,1   worst_gap=0.0,25.1,25.6 ms
+```
+
+Excluding idle 1's cold-start window: idle sums to 6 dropped over 9 windows (mean 0.67, max 1),
+wipe-drive sums to 13 over 9 (mean 1.44, max 3). Against the pre-fix numbers — wipe-drive up to
+`dropped=6,6,4` against an idle ceiling of 0–2 — this roughly halves the worst case and narrows
+the gap, and it is a consistent improvement, not a fluke: unlike the pre-fix data (one clean run,
+one that wasn't), all three pairs today land wipe-drive above idle, never the reverse. But it did
+not close the gap to noise. Task left unchecked in `openspec/changes/duel-panel-and-rig/tasks.md`
+— full numbers and remaining candidates (the `Frame/Mask` resize under `clip_contents`, and the
+board `ColorRect` itself being a full-screen fill-rate cost even with one reused tween) are in
+the task note, not chased further without asking.
+
+**The warm task's premise confirmed as engine cold start, not unwarmed panel content.**
+`tools/frametime.sh --cold`, twice, **panel never opened** (`draw_calls_max=3` throughout,
+confirming nothing but the placeholder board rect ever drew): `dropped=2 worst_gap=46.6ms@5` and
+`dropped=1 worst_gap=47.9ms@5` — the same frame-5 stall this project found on Day 1 on a scene
+with one `ColorRect` (ADR-0006). With nothing for `_warm()` to have warmed and nothing for
+unwarmed content to have stalled on, this is Godot's own boot-frame cost, not a panel-warming
+gap. Task stays unchecked (its literal verify line — "first open meets the same budget as a
+later one" — still can't pass, since even later windows aren't always clean on this device), but
+the cause is now attributed rather than open.
+
+**[ADR-0006](adr/0006-in-engine-frame-timing-instead-of-dumpsys.md) edited in place: the pass
+criterion now excludes the engine's own cold-start stall and is compared against a same-session
+idle baseline, instead of demanding literal zero dropped vsyncs everywhere including a stall the
+instrument itself produces.** Two exclusions, both backed by today's numbers above: the
+cold-start clash window starts once the board is interactive, not at process launch, because the
+frame-5 stall reproduces with nothing drawn; and the comparator is a same-session idle baseline,
+because this device drops 0–1 vsyncs on its own even at idle. Neither exclusion touches the
+"very first clash after a cold start" requirement itself — a shader-compile or texture-upload
+stall in that window still has to show up and still fails the gate; only the engine's
+pre-interactive boot frames are carved out. Reworded everywhere else the same criterion was
+stated, to keep them consistent with each other: `CLAUDE.md` (testing item 4),
+`docs/mvp-plan.md` (Day 3 "Done when" item 2), `docs/system-analysis.md` (the frame-rate budget
+row and the failure-mode-4 text), `docs/adr/0001-godot-4-gdscript-android-only.md` (a context
+bullet restating the same number), and
+`openspec/changes/duel-panel-and-rig/specs/duel-panel/spec.md` (the transition and cold-start
+scenarios). Also fixed a pre-existing inconsistency while in the area, not introduced today:
+`docs/product-analysis.md`'s success metric 2 still named `adb shell dumpsys gfxinfo` as the
+measurement method, which ADR-0006 superseded back on Day 1 — corrected to point at
+`tools/frametime.sh`.
+
 ## Ideas for later
 
 - **Mini-arena instead of a training mode.** A small preset board with a "capture everything in N

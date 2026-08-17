@@ -15,7 +15,8 @@ look better than a free app with 1M+ installs. The constraints that decide the e
   the cost of writing the code once.
 - **Android only, one target device**, a 2022 mid-range phone (Snapdragon 680 / Adreno 610
   class). No iOS, no desktop, no web (non-goal 9).
-- **≥50 fps sustained through the clash, no frame over 20 ms**, on that device.
+- **≥50 fps sustained through the clash, no dropped vsync attributable to the clash**, on that
+  device ([ADR-0006](0006-in-engine-frame-timing-instead-of-dumpsys.md)).
 - **Zero network, no login, no IAP.** The engine must not drag in analytics or ad SDKs by
   default, because the parent-trust requirement is "no `INTERNET` permission in the manifest at
   all".

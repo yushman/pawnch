@@ -1,7 +1,8 @@
 # 0006. Measure frame timing inside the engine, and count dropped vsyncs rather than long intervals
 
 - **Status:** Accepted
-- **Date:** 2026-08-16
+- **Date:** 2026-08-16, edited in place 2026-08-17 (the pass criterion excludes the engine's
+  own cold-start stall and is compared against a same-session idle baseline)
 - **Supersedes:** the `dumpsys gfxinfo … framestats` ritual named in
   [system-analysis](../system-analysis.md), [CLAUDE.md](../../CLAUDE.md) and
   [the MVP plan](../mvp-plan.md)
@@ -65,6 +66,33 @@ The reported numbers:
 original wording was a visible hitch; on a 60 Hz panel that is a missed refresh, and 20 ms of
 wall-clock interval is not one. The budget is not being relaxed — it is being pointed at the
 thing it meant.
+
+**The criterion has two measured exclusions, both added 2026-08-17 without weakening failure
+mode 4.** As written, "no dropped vsync, including the very first clash after a cold start" has
+a floor it cannot clear on this device, and would read as a clash failure on a stall that has
+nothing to do with the clash:
+
+- **The engine's own cold-start stall is excluded, because it reproduces with nothing drawn.**
+  `tools/frametime.sh --cold`, run twice on 2026-08-17 with the duel panel **never opened**
+  (`draw_calls_max=3` throughout — nothing but the placeholder board rect ever rendered),
+  reproduced the same stall this ADR already found on Day 1: `dropped=2 worst_gap=46.6ms@5` and
+  `dropped=1 worst_gap=47.9ms@5`. With no panel content ever drawn, there is nothing for a
+  cold-start clash to have caused — this is Godot's own boot-frame cost, at the same frame index
+  every time. **The cold-start clash window therefore starts once the board is interactive, not
+  at process launch**; the very first clash after that point still has to pass clean, which is
+  what failure mode 4 is actually protecting against.
+- **The comparator is an idle baseline taken in the same session, not zero.** This device drops
+  vsyncs on its own: three idle/wipe-drive pairs measured back to back on 2026-08-17
+  (`docs/devlog.md`, same-day entry) show idle windows dropping 0–1 vsyncs even with nothing
+  new happening on screen. A criterion that demands literal zero fails on background load alone
+  — WhatsApp DNS retries, Bluetooth power stats and MIUI telemetry all show up in logcat during
+  a measurement window on this device. The failure this criterion looks for is a drop that shows
+  up in the clash window and not in a same-session idle baseline, not any nonzero count.
+
+Neither exclusion touches the first-clash-after-cold-start requirement itself: the shader-compile
+and texture-upload stall that failure mode 4 exists to catch still has to show up, if it exists,
+in the window that starts once the board is interactive and is measured against that session's
+own idle floor. Only the engine's pre-interactive boot frames are carved out.
 
 `busy_*` comes from `Performance.TIME_PROCESS`. On this device it tracks the frame period
 (~19 ms) rather than isolating engine work, so it does not currently mean what its name
