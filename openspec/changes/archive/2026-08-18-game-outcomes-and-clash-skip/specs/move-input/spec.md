@@ -1,3 +1,8 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: A move is made by tapping the piece and then the destination`
+- TO: `### Requirement: A move is made by tapping the piece and then the destination, or by dragging it`
+
 ## MODIFIED Requirements
 
 ### Requirement: A move is made by tapping the piece and then the destination, or by dragging it
