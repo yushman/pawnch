@@ -91,9 +91,17 @@ optional. Loud incompleteness is fine here; silent wrongness is not.
    of the clash, so the cold-start clash window starts once the board is interactive, and the
    comparator is an idle baseline taken in the same session, because the device drops vsyncs on
    its own at idle. [ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md).
-5. **Impact cue misalignment** — the debug overlay logs the ms delta from the `impact` cue to
-   the SFX and haptic dispatches. Budget ≤16 ms. "Feels mushy" is unfalsifiable; this number is
-   not.
+5. **Impact cue misalignment — on the list, deliberately without a number.** The debug overlay
+   logs the ms delta from the `impact` cue to the SFX and haptic dispatches, and that is all it
+   can honestly claim: the dispatch call is always issued on the cue's own frame, so the delta is
+   sub-millisecond by construction and proves nothing about what the player hears. The number
+   that would have meant something — the device's real audio output latency — is not readable,
+   because Godot's Android driver does not implement `AudioServer.get_output_latency()` and
+   returns 0 whatever the truth is
+   ([godotengine/godot#35509](https://github.com/godotengine/godot/issues/35509)). Do not
+   reintroduce a latency compensation computed from that call: it compensates by zero and reports
+   success. This failure mode is real and currently unfalsifiable on this platform. Say so rather
+   than attaching a number that cannot fail.
 
 Chess correctness is handled by perft (20 / 400 / 8902 / 197281 from the start position) rather
 than by unit tests, plus "play one full game to mate" in the definition of done.

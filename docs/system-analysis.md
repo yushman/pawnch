@@ -253,7 +253,22 @@ one is a test the build owes.
    *Smallest thing that catches it:* a debug overlay that flashes a marker on the frame carrying
    the `impact` cue and logs the delta in milliseconds between the cue timestamp and each of the
    SFX and haptic dispatches. Measured on the real device on Day 3 and written into the devlog.
-   Budget: within one frame (≤16 ms) of the cue.
+
+   **This is the one failure mode on this list with no budget attached, and that is a finding,
+   not an omission.** Two attempts at a number both collapsed. Cue→dispatch is sub-millisecond by
+   construction — the dispatch is three lines of the cue's own frame — so it passes at any
+   quality. Adding the device's real audio output latency would have fixed that, and it is not
+   readable: Godot's Android driver does not implement `AudioServer.get_output_latency()` and
+   returns 0 no matter what the hardware does
+   ([godotengine/godot#35509](https://github.com/godotengine/godot/issues/35509)), so a
+   compensation derived from it silently compensates by zero. The remaining route is external —
+   filming the device and counting frames between the visual impact and the sound — and it was
+   dropped on Day 3 as more setup than the answer is worth this sprint.
+
+   What survives: cue→haptic dispatch is logged as a dispatch time, never as a time-to-sensation,
+   because the actuator's own latency is not observable from the app either. The misalignment risk
+   is unchanged; only our ability to falsify it is gone. Anyone who reinstates a number here must
+   say which of the two collapses they avoided.
 
 Rules correctness is the sixth candidate and is deliberately handled elsewhere: perft at Day 1
 (external contracts) makes it loud rather than silent, and "play one full game to mate" is in

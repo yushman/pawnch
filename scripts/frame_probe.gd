@@ -30,6 +30,13 @@ var _busy: Array[float] = []
 var _draw_calls: Array[float] = []
 var _vsync_ms := 16.667
 
+# Per-frame (end_usec, interval_ms) samples for region attribution -- kept
+# independent of the periodic window above, which clears every 5s. A region
+# that begins and ends inside one 5s window would otherwise be indistinguishable
+# from the wipes on either side of it, whose cost is separately known and dirty.
+var _samples: Array[Dictionary] = []
+var _region_start_usec: Dictionary = {}
+
 
 func _ready() -> void:
 	var hz := DisplayServer.screen_get_refresh_rate()
@@ -41,9 +48,11 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
-	_intervals.append((now - _last_usec) / 1000.0)
+	var interval_ms := (now - _last_usec) / 1000.0
+	_intervals.append(interval_ms)
 	_busy.append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
 	_draw_calls.append(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+	_samples.append({"t": now, "ms": interval_ms})
 	_last_usec = now
 
 	if now - _window_start_usec < int(REPORT_INTERVAL_SEC * 1_000_000):
@@ -52,6 +61,43 @@ func _process(_delta: float) -> void:
 	_intervals.clear()
 	_busy.clear()
 	_window_start_usec = now
+
+
+# Marks the start of a named region (e.g. "clash") on the same clock as the
+# per-frame samples above. Call again with the same name to move the start
+# forward (e.g. a re-triggered clash before the previous one's end was marked).
+func mark_region_start(region_name: String) -> void:
+	_region_start_usec[region_name] = Time.get_ticks_usec()
+
+
+# Reports the region immediately -- not on the next periodic window -- so a
+# region entirely inside one 5s window is still reported (see PAWNCH_CLASH
+# below). Silently does nothing if mark_region_start() was never called.
+func mark_region_end(region_name: String) -> void:
+	if not _region_start_usec.has(region_name):
+		return
+	var start_usec: int = _region_start_usec[region_name]
+	var end_usec := Time.get_ticks_usec()
+	_region_start_usec.erase(region_name)
+
+	var frames := 0
+	var dropped := 0
+	var worst := 0.0
+	for s in _samples:
+		if s["t"] < start_usec or s["t"] > end_usec:
+			continue
+		frames += 1
+		if s["ms"] > _vsync_ms * DROP_THRESHOLD:
+			dropped += 1
+			worst = maxf(worst, s["ms"])
+	print("PAWNCH_CLASH region=%s frames=%d dropped=%d worst_gap=%.1fms" % [
+		region_name, frames, dropped, worst,
+	])
+
+	# Samples strictly before this region's start cannot belong to any region
+	# still open or yet to come; drop them so the array does not grow unbounded
+	# over a long measurement session.
+	_samples = _samples.filter(func(s): return s["t"] >= start_usec)
 
 
 func _report() -> void:

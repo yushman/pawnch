@@ -121,16 +121,32 @@ happens with less polish, and that is the correct trade. Do not slide Day 3.
       Debug overlay logging the ms delta between the `impact` cue and each of the SFX and haptic
       dispatches. (~4h, *M6 1/2*)
 
-**Done when — all four, measured on the phone, not the laptop:**
-1. Total clash ≤ 2.0 s; tap → first clash frame < 200 ms.
-2. ≥50 fps sustained, and no dropped vsync attributable to the clash, **including the very
-   first clash after a cold start** (that is where the shader-compile stall hides — failure
-   mode 4) — measured against a same-session idle baseline, with the engine's own cold-start
-   stall around frame 5 excluded as an instrument artifact, not a clash cost
+**Done when — measured on the phone, not the laptop. The four are not equal, and conflating them
+is how a sprint dies of something fixable.** The checkpoint tests the *art-direction* hypothesis.
+Criterion 4 plus the verdict is what tests it, and it is the gate. Criteria 1 and 2 test
+engineering: they are recorded without exception, but a failure there is a day of work on Day 4+,
+not a reason to stop. Criterion 3 was dropped on Day 3 — see below.
+
+1. *(measured; failure is fixable, not a kill)* Total clash ≤ 2.0 s; tap → first clash frame
+   < 200 ms.
+2. *(measured; failure is fixable, not a kill)* ≥50 fps sustained, and no dropped vsync
+   attributable to the clash, **including the very first clash after a cold start** (that is
+   where the shader-compile stall hides — failure mode 4) — measured against a same-session idle
+   baseline, with the engine's own cold-start stall around frame 5 excluded as an instrument
+   artifact, not a clash cost
    ([ADR-0006](adr/0006-in-engine-frame-timing-instead-of-dumpsys.md)).
-3. Impact cue → SFX and → haptic both ≤ 16 ms, from the debug overlay, written into the devlog.
-4. A 15 s vertical screen recording of the clash exists in the repo, next to a screen recording
-   of the equivalent capture in Ani Chess 3D captured on the **same device**.
+3. **Dropped on Day 3.** This was the impact-cue alignment number, rewritten that morning onto
+   cue→SFX-dispatch plus `AudioServer.get_output_latency()`. It cannot be read at all: the
+   Android driver does not implement that call and returns 0 regardless of the real latency
+   ([godotengine/godot#35509](https://github.com/godotengine/godot/issues/35509)), which also
+   means a compensation computed from it compensates by zero while sounding correct in the log.
+   Judging the alignment by ear instead was dropped along with audio in the recordings. Cue→haptic
+   dispatch is still logged as a dispatch time. **Failure mode 5 is not solved, only unmeasurable
+   on this platform** — it stays on the silent-failure list without a number attached.
+4. **⛔ This one is the gate.** A 15 s vertical screen recording of the clash exists in the repo,
+   next to a screen recording of the equivalent capture in Ani Chess 3D captured on the **same
+   device**. Both are silent — `adb shell screenrecord` captures no audio — so the comparison is
+   visual, symmetrically for both apps.
 
 **⛔ Then answer, out loud, looking at the two recordings side by side:**
 
@@ -148,7 +164,7 @@ by a tired person — "does it look good" is not.
   and nobody here draws. That is a weaker retry than the one this plan was written against —
   motion and effects are all there is left to pull with, not line weight. Chess core slides
   to Days 6–7, and **cut order steps 1 and 2 fire immediately** to pay for it. Re-test end of
-  Day 5, same four criteria, same question.
+  Day 5, same gate, same question.
 - **No twice (end of Day 5) → stop. Kill the project.** This is the kill criterion from
   validation, not a setback. Write the dated verdict into the repo, keep the clash asset and
   both recordings, and finish the READMEs honestly. **A sprint that answers "no" clearly and
@@ -233,13 +249,20 @@ something always plays.
 - [ ] Remaining juice: the full 4–6 SFX set, VFX polish, haptic tuning on the real device
       (including the device that ignores amplitude), skip-clashes toggle. (~4h, *M6 2/2*)
 
-**Done when:** all Musts are functionally present; the impact-cue delta is still ≤16 ms with the
-full SFX set loaded; the app behaves with the phone muted and with vibration disabled
+**Done when:** all Musts are functionally present; the impact-cue delta (sum of SFX dispatch and
+audio output latency; haptic dispatch reported separately) is still ≤16 ms with the full SFX set
+loaded; the app behaves with the phone muted and with vibration disabled
 system-wide.
 
 ---
 
 ## Day 9 — Feature freeze
+
+**Inherited from Day 3.** The user cut the Day-3 kill checkpoint mid-session (2026-08-17) and
+chose to continue without answering it; `knight-takes-pawn-clash`'s Block D (frame-probe regions,
+extended boot warm exercised on-device, the idle/cold/warm/idle measurement sequence) was deferred
+here rather than run that day. See `openspec/changes/knight-takes-pawn-clash/tasks.md` Block D and
+the devlog entry dated 2026-08-17.
 
 - [ ] On-device performance pass and full-game correctness run: play to checkmate, every piece
       type captures, cold-start-first-clash frame timing recorded, capture→clash latency
@@ -253,6 +276,12 @@ phone, from a cold start. **No feature work after today.**
 ---
 
 ## Day 10 — Release
+
+**Inherited from Day 3.** The user cut the Day-3 kill checkpoint mid-session (2026-08-17) and
+chose to continue without answering it; `knight-takes-pawn-clash`'s Block C (both 15 s recordings,
+the Ani Chess 3D comparison, the dated yes/no verdict) was deferred here rather than run that day.
+See `openspec/changes/knight-takes-pawn-clash/tasks.md` Block C and the devlog entry dated
+2026-08-17.
 
 - [ ] Signed release APK; GitHub Actions building the APK on push; LICENSE plus the vendored
       rules library's attribution; fresh-clone build check. Verify

@@ -50,10 +50,6 @@ ANIMATIONS = ["Idle", "Idle Blinking", "Slashing", "Hurt", "Dying"]
 # it -- nothing does yet (scripts/character_rig.gd only ever calls play_state
 # with "Idle"), so this has no observable effect today.
 LOOPING = {"Idle", "Idle Blinking"}
-# Cue markers (impact / recoil / exit) are Day 3's to place on a real clash; this
-# animation is the standing proof that the timeline mechanism still fires.
-CUE_DEMO = [("impact", 0.55), ("recoil", 0.85), ("exit", 1.55)]
-CUE_DEMO_LENGTH = 1.7
 
 CREST_HEIGHT_FRACTION = 0.18  # ADR-0007 decision 8; 0.12 is the hard floor.
 NODE_NAME_OVERRIDES = {"Face 01": "Face"}
@@ -354,20 +350,6 @@ def write_scene(rig, family, raster, parts, children, textures, height, crown, o
 		lib[anim_name] = scene.sub_resource("Animation_%s" % anim_name.replace(" ", "_"),
 		                                    "Animation", "\n".join(body))
 
-	cues = ", ".join('{\n"args": ["%s"],\n"method": &"_fire_cue"\n}' % n for n, _ in CUE_DEMO)
-	demo = (
-		'resource_name = "cue_demo"\n'
-		"length = %s\n"
-		'tracks/0/type = "method"\n'
-		'tracks/0/path = NodePath(".")\n'
-		'tracks/0/keys = {\n'
-		'"times": PackedFloat32Array(%s),\n'
-		'"transitions": PackedFloat32Array(%s),\n'
-		'"values": [%s]\n'
-		"}" % (fmt(CUE_DEMO_LENGTH), ", ".join(fmt(t) for _, t in CUE_DEMO),
-		       ", ".join("1" for _ in CUE_DEMO), cues)
-	)
-	lib["cue_demo"] = scene.sub_resource("Animation_cue_demo", "Animation", demo)
 	library = scene.sub_resource(
 		"AnimationLibrary_main", "AnimationLibrary",
 		"_data = {\n%s\n}" % ",\n".join('"%s": %s' % (k, v) for k, v in sorted(lib.items())))
@@ -401,8 +383,9 @@ def write_scene(rig, family, raster, parts, children, textures, height, crown, o
 				_, w, h = textures[name]
 				_pos, _rot, _scale, offset = godot_sprite(tr, w, h, key.pivot_x, key.pivot_y, raster)
 				nodes.append('[node name="%s" type="Sprite2D" parent="%s"]' % (part.name, parent_path))
-				if part.name == "Sword":
-					nodes.append("unique_name_in_owner = true")  # %Sword, for show_idle_weapon
+				if part.name in ("Sword", "Head", "Face"):
+					# %Sword for show_idle_weapon; %Head/%Face for the knockout detach (Day 3).
+					nodes.append("unique_name_in_owner = true")
 				nodes.extend([
 					"position = %s" % d["position"], "rotation = %s" % d["rotation"],
 					"scale = %s" % d["scale"], "z_index = %d" % part.z,

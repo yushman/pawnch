@@ -59,10 +59,18 @@ The animation is the product, so the frame budget is the spec, not a nice-to-hav
 
 | | Target | Measured |
 |---|---|---|
-| Sustained fps through the clash | ≥50 | — |
-| Capture tap → first clash frame | <200 ms | — |
-| Total clash duration | ≤2.0 s | — |
-| Cold start → interactive board | ≤3.0 s | — |
+| Sustained fps through the clash | ≥50 | 59.5–59.9 |
+| Capture tap → first clash frame | <200 ms | 29–35 ms |
+| Total clash duration | ≤2.0 s | 1.90–1.93 s |
+| Cold start → interactive board | ≤3.0 s | 2.41 s |
+| Draw calls, board + clash on screen | ~60 | 29 |
+
+Measured 2026-08-17 over four captures. Frame times come from inside the engine, never from
+`dumpsys gfxinfo` ([ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md)); the
+clash windows report 0–1 dropped vsyncs each, against an idle baseline in the same sessions that
+drops 1–2 per five seconds on its own, so no dropped vsync is attributable to the clash. The
+cold-start figure is launch to the first frame that draws the board *and* accepts a tap
+(`PAWNCH_READY` in logcat); the activity's own first frame comes 940 ms after launch.
 
 Measured on: **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`), MediaTek Helio G99, Mali-G57 MC2,
 1080x2400, Android 16 (SDK 36), arm64-v8a. Its GPU is a step above the Snapdragon 680 /
@@ -80,7 +88,31 @@ tools/build.sh              # headless export -> build/pawnch.apk
 tools/deploy.sh             # build, install and launch on the attached device
 tools/check_no_internet.sh  # fails if the APK declares android.permission.INTERNET
 tools/frametime.sh --cold   # cold-start ms, worst frame ms, frames over 20 ms
+godot --headless --script tests/run_headless.gd   # perft, board, hit test, desync smoke
 ```
+
+The build carries a **Duel** button in the bottom-right corner that plays the clash without a
+capture. On the 1080×2400 device that is `adb shell input tap 956 2336` — it sits well below the
+board, so it cannot select a piece by accident. Everything the app reports on device is a
+`PAWNCH_` line in logcat: `PAWNCH_READY` (board interactive), `PAWNCH_MOVE`, `PAWNCH_CLASH`
+(the FEN before and after a clash), `PAWNCH_CUE` (clash beat times) and `PAWNCH_FRAME`.
+`adb exec-out screencap` returns a stale frame on this device — capture anything moving with
+`adb shell screenrecord` and split it with `ffmpeg -vf fps=30`.
+
+No art is hand-assembled ([ADR-0009](docs/adr/0009-the-art-pipeline-is-code.md)). Both art
+outputs regenerate from their sources with one command each:
+
+```
+tools/import_craftpix.py <pack.zip>  # -> assets/rig/<family>/ + scenes/character_rig_<family>.tscn
+tools/crests.py                      # -> assets/rig/crest_<type>.png, the six piece crests
+tools/bake_board_atlas.py            # -> assets/board/pieces.png + pieces.json, the board pieces
+```
+
+`tools/bake_board_atlas.py` renders the 72 board frames — six piece types × two colours × six
+frames of each pack's own `Idle Blinking` — through Godot and packs them into a single 2025×850
+page. It needs a real window and the OpenGL driver, not
+`--headless`: the dummy rendering server returns a null viewport texture. Point it at a Godot
+binary with `GODOT=/path/to/godot` if `godot` is not on `PATH`.
 
 The Android SDK path and debug keystore are configured once in the Godot editor's export
 settings, not committed. Generate the debug key locally:

@@ -4,28 +4,98 @@ class_name DuelPanel
 # Full-screen cutaway (ADR-0002). 1080x1500 panel centred in the 1080x1920
 # safe band, itself centred in whatever the runtime viewport is, so the
 # framing survives the 16:9-20:9 supported range without re-composing.
+#
+# play_capture() is the one bespoke clash this change builds -- five beats
+# (wind-up, charge, impact, recoil, knockout) driven by this script rather than
+# by a single authored Animation resource, because the beat times are cue points
+# the debug overlay and JuiceBus both read off the same schedule (impact-juice
+# spec: "no consumer of those cues holds a duplicate copy of any of those
+# times").
+#
+# Sides are fixed by colour and never by role (ADR-0011 decision 5): white is
+# always the left figure, black always the right one, and the capture resolves
+# by who dies. So there is one timeline and one set of beat times, and the
+# charge direction plus the two staging positions are derived from the two
+# figures' home positions and a signed direction rather than authored twice.
 
 const PANEL_SIZE := Vector2(1080, 1500)
 const SAFE_BAND_SIZE := Vector2(1080, 1920)
 const BOARD_RECEDE_SCALE := 0.94
 
-@export var board: CanvasItem
+# Target layout (tasks.md decisions): impact at 0.55s, total 1.90s including
+# both wipes, wind-up running under wipe_in (0.15s) rather than after it.
+const WINDUP_END := 0.15
+const IMPACT_T := 0.55
+const RECOIL_CUE_T := 0.85
+const DYING_T := 0.95
+const EXIT_T := 1.60
+const WIPE_OUT_DURATION := 0.3
+
+# Staging, as offsets rather than absolute x, so one set of numbers serves both
+# attack directions: the attacker winds up WINDUP_BACK away from its own home
+# and charges to CHARGE_GAP short of the defender's, on whichever side of the
+# defender it happens to stand.
+const WINDUP_BACK := 40.0
+const CHARGE_GAP := 280.0
+const IMPACT_Y := 900.0
+# Staging fixes found by pulling accurate per-frame stills off an on-device
+# recording (adb screencap and ffmpeg -ss both proved unreliable -- only a full
+# frame-accurate decode caught these):
+#   - 620 (100px gap to the defender's original 780 home) badly overlapped the
+#     two rigs' bodies; widened to a 280px gap.
+#   - The defender's own 780 home put its head's global x past the 1080-wide
+#     panel edge -- confirmed by a transform diagnostic, not a scale bug in the
+#     detach duplicate, which matched the original's global transform exactly.
+#     Moved the defender to 660 and the attacker's charge target to 380,
+#     keeping the same 280px gap between them.
+#   - 380 alone did not clear it: a full-frame decode showed the two heads
+#     overlapping with ZERO background gap between them even at rest (home
+#     300/660, a horizontal scan at head height ran solid foreground from
+#     x=131 to x=964), because the rig heads are wide relative to a 360px
+#     root gap. The attacker's rest/wind-up position (scene home 300 -> 100,
+#     wind-up 260 -> 60) was pulled back further left so the idle and
+#     wind-up beats read as two separate characters; the charge target is left
+#     at 380 on purpose, since it already lands the strike at the midpoint
+#     between 380 and the defender's 660 -- contact between the rigs at the
+#     instant of the hit is correct, it is the earlier beats that must not
+#     show it.
+
+# @onready, never an exported NodePath. Five node references written as
+# `name = NodePath("...")` in a .tscn have now been silently null at runtime in
+# this project; `board` was the fifth. get_node_or_null, because this scene is
+# also opened on its own.
+@onready var board: CanvasItem = get_node_or_null("../Board")
+## Optional: scripts/frame_probe.gd, for per-clash region reporting (Block D).
+## Duck-typed via has_method() so this scene still runs standalone without it.
+@onready var frame_probe: Node = get_node_or_null("../FrameProbe")
 
 @onready var _board_dim: ColorRect = $BoardDim
 @onready var _frame: Control = $Frame
 @onready var _mask: Control = $Frame/Mask
-@onready var _background: TextureRect = $Frame/Mask/Background
+@onready var _stage: Control = $Frame/Mask/Stage
+@onready var _burst: Sprite2D = $Frame/Mask/Stage/Burst
 @onready var _anim: AnimationPlayer = $AnimationPlayer
-@onready var _characters: Array[CharacterRig] = [$Frame/Mask/Knight, $Frame/Mask/Pawn]
+@onready var _juice: JuiceBus = $JuiceBus
+@onready var _white: CharacterRig = $Frame/Mask/Stage/White
+@onready var _black: CharacterRig = $Frame/Mask/Stage/Black
+@onready var _characters: Array[CharacterRig] = [_white, _black]
 
 var _board_scale := Vector2.ONE
+var _home_x: Array[float] = []
 var _is_open := false
+var _is_clashing := false
 var _board_tween: Tween
+var _clash_start_usec := 0
+var _awaiting_first_frame := false
+var _cue_log: Array[String] = []
 
 
 func _ready() -> void:
+	print("PAWNCH_PANEL board=%s frame_probe=%s" % [board != null, frame_probe != null])
 	if board:
 		_board_scale = board.scale
+	for c in _characters:
+		_home_x.append(c.position.x)
 	_layout()
 	get_viewport().size_changed.connect(_layout)
 	await _warm()
@@ -36,7 +106,6 @@ func _layout() -> void:
 	var frame_rect := frame_rect_for(get_viewport_rect().size)
 	_frame.position = frame_rect.position
 	_frame.size = frame_rect.size
-	_background.size = PANEL_SIZE
 	_mask.size.y = PANEL_SIZE.y
 	# A Control scales about its top-left by default; pivot it about its own
 	# centre so the recede reads as "pull back", not "drift up-left". Set on
@@ -56,11 +125,142 @@ static func frame_rect_for(viewport_size: Vector2) -> Rect2:
 	return Rect2(Vector2(x, y), PANEL_SIZE)
 
 
-func toggle() -> void:
-	if _is_open:
-		close()
-	else:
-		open()
+# The debug button's entry point: the clash this change was authored against.
+func play() -> void:
+	play_capture("white", "knight", "pawn")
+
+
+# The one bespoke clash, for whichever colour is attacking. Re-entrant calls
+# while a clash is already running are ignored rather than queued or interrupted
+# -- skip/finish_now() is Day 5's problem (mvp-plan), not this change's.
+func play_capture(attacker_color: String, attacker_type: String, defender_type: String,
+		tap_usec := 0) -> void:
+	if _is_clashing:
+		return
+	_is_clashing = true
+	_reset_stage()
+	_cue_log.clear()
+	# Cue zero is the tap that committed the capture, not the panel opening, so
+	# the <200ms budget is measured from where the player's finger was.
+	_clash_start_usec = tap_usec if tap_usec > 0 else Time.get_ticks_usec()
+	if frame_probe and frame_probe.has_method("mark_region_start"):
+		frame_probe.mark_region_start("clash")
+
+	var attacking_white := attacker_color == "white"
+	var attacker := _white if attacking_white else _black
+	var defender := _black if attacking_white else _white
+	# One bespoke clash serves every capture today, so the crests are the only
+	# thing naming the pieces that are actually fighting.
+	attacker.set_piece_type(attacker_type)
+	defender.set_piece_type(defender_type)
+	_cue_log.append("PAWNCH_CUE clash attacker=%s_%s defender=%s_%s" % [
+		attacker_color, attacker_type,
+		"black" if attacking_white else "white", defender_type])
+
+	var attacker_home := _home_x[0] if attacking_white else _home_x[1]
+	var defender_home := _home_x[1] if attacking_white else _home_x[0]
+	var toward := signf(defender_home - attacker_home)
+	var windup_x := attacker_home - toward * WINDUP_BACK
+	var charge_x := defender_home - toward * CHARGE_GAP
+	var impact_point := Vector2((charge_x + defender_home) * 0.5, IMPACT_Y)
+
+	open()  # wipe_in begins; wind-up starts on the same frame (tap -> < 200ms)
+	_arm_first_frame_cue()
+
+	var root_tween := create_tween()
+	root_tween.tween_property(attacker, "position:x", windup_x, WINDUP_END) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	root_tween.tween_property(attacker, "position:x", charge_x, IMPACT_T - WINDUP_END) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+	await _wait_until(WINDUP_END)
+	# Each rig's own Slashing already points at the other side, and the
+	# skeleton's does so through duel_panel.tscn's static per-colour mirror --
+	# measured, not assumed: see ADR-0011 decision 5.
+	attacker.play_state("Slashing")
+	_juice.play_swing()
+
+	await _wait_until(IMPACT_T)
+	_fire_cue("impact")
+	defender.play_state("Hurt")
+	# The defeat is asymmetric and it is a property of the character, not of the
+	# position (ADR-0007 decision 4): the skeleton's head comes off, the
+	# valkyrie's does not -- she gets Dying and the pain face below.
+	if defender == _black:
+		defender.detach_head()
+	var dispatch: Dictionary = await _juice.fire_impact(impact_point)
+	_log_dispatch(dispatch)
+
+	attacker.play_state("Idle Blinking")
+	var recoil_tween := create_tween()
+	recoil_tween.tween_property(attacker, "position:x", attacker_home, EXIT_T - IMPACT_T - JuiceBus.HITSTOP_SEC) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+	await _wait_until(RECOIL_CUE_T)
+	_fire_cue("recoil")
+
+	await _wait_until(DYING_T)
+	defender.play_state("Dying")
+
+	await _wait_until(EXIT_T)
+	_fire_cue("exit")
+	close()
+
+	await _wait_until(EXIT_T + WIPE_OUT_DURATION)
+	if frame_probe and frame_probe.has_method("mark_region_end"):
+		frame_probe.mark_region_end("clash")
+	_reset_stage()
+	# Cue zero was the tap, so this one is the whole ≤2.0s budget: tap to the
+	# board coming back and input returning.
+	_fire_cue("done")
+	_flush_cue_log()
+	_is_clashing = false
+
+
+func _wait_until(t_sec: float) -> void:
+	var elapsed := (Time.get_ticks_usec() - _clash_start_usec) / 1_000_000.0
+	var remaining := t_sec - elapsed
+	if remaining > 0.0:
+		await get_tree().create_timer(remaining).timeout
+
+
+# "First clash frame" is the first frame that actually presented any of the
+# panel: the wipe is keyed from zero width, so the frame the tap lands on still
+# shows nothing. frame_post_draw rather than _process, because _process for the
+# tap's own frame runs after _unhandled_input and before anything is drawn.
+func _arm_first_frame_cue() -> void:
+	_awaiting_first_frame = true
+	if not RenderingServer.frame_post_draw.is_connected(_check_first_frame):
+		RenderingServer.frame_post_draw.connect(_check_first_frame)
+
+
+func _check_first_frame() -> void:
+	if not _awaiting_first_frame or _mask.size.x <= 0.0:
+		return
+	_awaiting_first_frame = false
+	_fire_cue("first_frame")
+	RenderingServer.frame_post_draw.disconnect(_check_first_frame)
+
+
+func _fire_cue(cue_name: String) -> void:
+	var t := (Time.get_ticks_usec() - _clash_start_usec) / 1_000_000.0
+	_cue_log.append("PAWNCH_CUE %s t=%.3f" % [cue_name, t])
+
+
+# Dispatch times only -- no budget asserted (criterion 3 dropped, tasks.md).
+func _log_dispatch(d: Dictionary) -> void:
+	_cue_log.append("PAWNCH_CUE dispatch sfx_delta=%.1fms haptic_delta=%.1fms" % [
+		d["sfx_delta_ms"], d["haptic_delta_ms"],
+	])
+
+
+# Buffered rather than printed live (trap: a print() on the impact frame would
+# land inside the very window criterion 2 measures). One flush after the
+# panel has fully closed.
+func _flush_cue_log() -> void:
+	for line in _cue_log:
+		print(line)
+	_cue_log.clear()
 
 
 func open() -> void:
@@ -85,6 +285,25 @@ func close_now() -> void:
 		_board_tween.kill()
 	if board:
 		board.scale = _board_scale
+	_reset_stage()
+
+
+# Idempotent: puts everything the clash moves, detaches or hides back to its
+# authored rest state. Called on entry to play() (defensive, in case a
+# previous clash left something behind), on close_now(), and after every
+# clash finishes -- so back-to-back clashes start from the same place every
+# time.
+func _reset_stage() -> void:
+	Engine.time_scale = 1.0
+	if _stage:
+		_stage.position = Vector2.ZERO
+	if _burst:
+		_burst.modulate.a = 0.0
+	for i in _characters.size():
+		var c := _characters[i]
+		c.reset_defeat()
+		c.play_state("Idle Blinking")
+		c.position.x = _home_x[i]
 
 
 # One reused Tween rather than a fresh allocation per toggle — also fixes the
@@ -99,14 +318,17 @@ func _tween_board_scale(target_scale: Vector2, duration: float) -> void:
 	_board_tween.tween_property(board, "scale", target_scale, duration)
 
 
-# Failure mode 4 (system-analysis.md): the first open after a cold start
-# must not compile a shader or upload a texture. Draw everything once at
-# zero opacity so the GPU work happens here, not on the player's first tap.
+# Failure mode 4 (system-analysis.md): the first clash after a cold start
+# must not compile a shader, upload a texture or decode a sound. Draw and
+# play everything once at zero opacity so that work happens here, not on the
+# player's first tap.
 func _warm() -> void:
 	modulate.a = 0.0
 	_mask.size.x = PANEL_SIZE.x
 	for c in _characters:
-		c.play_state("Idle")
+		c.play_state("Idle Blinking")
+	_juice.warm()
+	_characters[1].warm_detach()
 	await get_tree().process_frame
 	await get_tree().process_frame
 	modulate.a = 1.0

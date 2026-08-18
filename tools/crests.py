@@ -118,9 +118,18 @@ def king(S=SIZE):
 ALL = {"pawn": pawn, "knight": knight, "bishop": bishop,
        "rook": rook, "queen": queen, "king": king}
 
-os.makedirs(OUT, exist_ok=True)
-for name, fn in ALL.items():
-	img = fn()
-	path = os.path.join(OUT, f"crest_{name}.png")
-	img.save(path)
-	print(f"wrote {path} {img.size}")
+
+def main():
+	os.makedirs(OUT, exist_ok=True)
+	for name, fn in ALL.items():
+		img = fn()
+		path = os.path.join(OUT, f"crest_{name}.png")
+		img.save(path)
+		print(f"wrote {path} {img.size}")
+
+
+# Guarded so tools/bake_board_atlas.py can import the six shape functions for the
+# tile glyphs without rewriting assets/rig/ as a side effect (ADR-0011 decision 4:
+# one set of shapes at two sizes).
+if __name__ == "__main__":
+	main()

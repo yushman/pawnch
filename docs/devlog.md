@@ -1120,8 +1120,660 @@ scenarios). Also fixed a pre-existing inconsistency while in the area, not intro
 measurement method, which ADR-0006 superseded back on Day 1 — corrected to point at
 `tools/frametime.sh`.
 
+## 2026-08-17 — Day 3: the clash — ⛔ kill checkpoint, blocked before the verdict
+
+[`knight-takes-pawn-clash`](../openspec/changes/knight-takes-pawn-clash/) implemented in the order
+its own `tasks.md` specifies — build → look → measure, not the plan's "animation / juice" split —
+because a "no" verdict makes criteria 1–3 moot and any measurement done first is wasted. Blocks A
+and B are code-complete and verified headlessly. **Block C, the actual verdict, did not happen: the
+Redmi Note 13 (`2312FPCA6G`) was attached at the start of the session and disconnected before any
+on-device work — `adb devices` returns an empty list, and `system_profiler SPUSBDataType` / `ioreg
+-p IOUSB` show no Xiaomi/Redmi USB device at all — some time between reading the task and reaching
+Block C.** Every device-dependent verify line in `tasks.md` is unchecked as a result. This entry
+exists anyway, per the working rhythm: write it especially on the day nothing got measured.
+
+**Block A — the clash, code-complete, not device-verified.** `scripts/duel_panel.gd` gained a
+`play()` coroutine replacing the old manual `toggle()` open/close: wind-up, charge, impact, recoil,
+knockout, sequenced against one wall-clock schedule (`_clash_start_usec`, `_wait_until(t)`) rather
+than a single authored `Animation` resource, because the beat times are also what `JuiceBus` and the
+debug overlay read — the spec's "no consumer of those cues holds a duplicate copy of any of those
+times" line, taken literally. Target layout landed as designed: wind-up `[0, 0.15]` exactly under
+`wipe_in`'s own 0.15 s, charge `[0.15, 0.55]` (root-motion tween on the knight's `position.x`, timed
+to finish alongside its own `Slashing` clip), `impact` cue at `t=0.55`, `recoil` cue at `t=0.85`,
+`exit` cue at `t=1.60` triggering `close()`, total `1.60 + 0.30 (wipe_out) = 1.90 s`. Both rigs
+default to `Idle Blinking` instead of `Idle` now (`character_rig.gd`, `_ready()` and `duel_panel.gd`
+`_warm()`/`_reset_stage()`), so both characters visibly breathe and blink pre-strike.
+
+**Knockout beat.** `CharacterRig.detach_head()` spawns a duplicate `Head` and `Crest` Sprite2D via
+`.duplicate()`, sets their `global_transform` to match the originals, hides the originals, and tweens
+the duplicates away — the trap named in `tasks.md`, confirmed by re-reading both rig `.tscn` files
+before writing any code: `Dying` keys `bone_007` (the head bone) by `NodePath`, not `Head` directly,
+but reparenting `Head` out from under it at runtime was still the wrong move, so the duplicate
+approach was taken as specified rather than tested against the trap the hard way. `unique_name_in_owner
+= true` added to `Head` in `tools/import_craftpix.py`'s node emitter (next to the existing `Sword`
+line) so `%Head` resolves identically on both packs regardless of their differing bone counts; both
+rig scenes regenerated from the source `.zip`s (`tools/import_craftpix.py ~/Downloads/craftpix-net-…`)
+to pick it up, and to drop `CUE_DEMO` — the demo cue-firing animation and `play_cue_demo()` are gone
+from the generator and from `character_rig.gd`, replaced by the real timeline. The detach direction
+is local `(-1, -0.35)` on the skeleton (screen-right, away from the valkyrie, per the mirrored-mount
+consequence recorded in the ADR-0011 edit below).
+
+**Reset.** `_reset_stage()` restores `Engine.time_scale`, the shake stage's position, burst alpha,
+both characters' `reset_defeat()` (idempotent — safe whether or not `detach_head()` ever ran) and
+root x-positions, and runs on entry to `play()`, on `close_now()`, and at the true end of every
+clash. Not yet exercised against the device's actual "three taps ~2.5 s apart" verify line, but a
+headless smoke script (three `play()` calls back to back on a 2.6 s cadence, `/tmp` scratch, not
+committed) ran clean three times with no errors and consistent cue timestamps
+(`impact t≈0.552–0.560`, `recoil t≈0.856–0.857`, `exit t≈1.601–1.602`).
+
+**Block B — the juice, code-complete, not device-verified.** New `scripts/juice_bus.gd`
+(`class_name JuiceBus`), a child node of `duel_panel.tscn`: `_freeze()` (hitstop via
+`Engine.time_scale = 0.0`, released by `get_tree().create_timer(0.09, true, false, true)` — the
+fourth argument is `ignore_time_scale`, the exact trap named in `tasks.md`, since a default timer at
+`time_scale=0` never fires), `_shake()` (tweens a new `Stage` control **inside** `Mask`, never `Frame`
+or `Mask` themselves — `Background` was resized to `1144×1564` at `(-32,-32)` inside `Stage` so a
+±10 px shake never uncovers empty space at the panel edge), `_burst()` (scales/fades a `Sprite2D`
+against `tools/vfx.py`'s procedural starburst), and the SFX/haptic dispatch with latency
+compensation described below.
+
+**`tools/vfx.py`** draws one PvZ-style 10-point starburst the same way `tools/crests.py` draws
+crests — PIL, flat fill (`(255, 226, 86, 255)`, a hot white-yellow distinct from the crests' amber so
+the two never get confused), thick black outline via the same erode-and-paste `_style()` — to
+`assets/rig/burst.png`. **`tools/sfx.py`** writes `assets/sfx/swing.wav` (filtered white noise — a
+one-pole lowpass, `alpha=0.06` — under a fast-attack/exponential-decay envelope) and
+`assets/sfx/impact.wav` (a 90 Hz sine body plus a 6 ms noise-click transient) via `numpy` + stdlib
+`wave`, both seeded (`SEED = 20260817`) so re-running the script is byte-identical — checked:
+`md5(assets/sfx/*.wav)` before and after a second run matched exactly. Both are placeholders per the
+decision already on record in `tasks.md`; file names and mount points are the contract and do not
+change when they're regenerated through an AI tool later.
+
+**Latency-compensated impact SFX, the actual mechanism.** `duel_panel.gd`'s `play()` reads
+`AudioServer.get_output_latency()` once per clash and calls `_juice.prime_impact_sfx()` — which calls
+`impact_player.play()` and stamps `_sfx_dispatch_usec` — at `t = impact_time - latency`, then fires
+the cue, hitstop, shake, burst and haptic at `t = impact_time` exactly. `fire_impact()` returns
+`{sfx_delta_ms, haptic_delta_ms, output_latency_ms, sum_ms}`; the debug overlay buffers these into
+`_cue_log` and prints once after `exit` (never during the clash — the trap named in `tasks.md` about
+`print()` landing on the exact frame criterion 2 measures), as one `PAWNCH_CUE dispatch …` line per
+clash, alongside separate `PAWNCH_CUE impact/recoil/exit t=…` lines. In the headless smoke run
+(dummy audio driver, so `output_latency_ms=0.0` is expected and not evidence of anything) `sfx_delta`
+landed at `-0.3` to `-0.5 ms` against a target of `-latency` — i.e. the scheduling itself is accurate
+to a fraction of a millisecond; the real number depends entirely on the device's actual output
+latency, which nothing but the device can report.
+
+**Block D — code-complete, not exercised on a device.** `scripts/frame_probe.gd` gained
+`mark_region_start(name)` / `mark_region_end(name)`, keeping a persistent `(t, interval_ms)` sample
+array independent of the periodic 5 s window (which still clears on its own schedule) so a region
+entirely inside one window is still reported — printed immediately as `PAWNCH_CLASH region=<name>
+frames=%d dropped=%d worst_gap=%.1fms` rather than waiting for the next periodic flush. `duel_panel.gd`
+calls `mark_region_start("clash")` at the tap and `mark_region_end("clash")` once `wipe_out` has fully
+finished (`t = 1.90 s`), through an optional `frame_probe` export wired from `main.tscn`
+(`../FrameProbe`), duck-typed via `has_method()` so the scene still runs standalone without one.
+`_warm()` and `JuiceBus.warm()` extended to cover everything this change added: the burst sprite is
+forced to a negligible-but-nonzero scale/alpha so its `RenderingServer` resource is created at boot,
+not on the first clash; both `AudioStreamPlayer`s are played once at `-80 dB` and stopped; the
+skeleton's `warm_detach()` (`detach_head()` immediately followed by `reset_defeat()`) exercises the
+duplicate-sprite construction path once. None of this has a number yet — `tools/frametime.sh --cold`
+needs the phone.
+
+**Block E — done, does not depend on the device.**
+- **Criterion 3 rewritten everywhere it was stated**, per the decision already on record in
+  `tasks.md`: the gate is now cue→SFX-dispatch **plus** `AudioServer.get_output_latency()`, ≤16 ms on
+  the sum, with the haptic figure explicitly labelled a dispatch time rather than a
+  time-to-sensation (the actuator's own latency is not observable from the app). Touched
+  `CLAUDE.md` (testing item 5), `docs/mvp-plan.md` (Day 3 "Done when" item 3, Day 8 "Done when"),
+  `docs/system-analysis.md` (failure mode 5). `docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md`
+  does not state this number and needed no edit — checked by grep before touching anything.
+- **ADR-0011 decision 5 edited in place**, not superseded. The shipped scene (`duel_panel.tscn`
+  mounts the skeleton at `scale = (-0.714, 0.714)`) contradicted the ADR's "there is no mirroring."
+  What's actually forbidden is a *role-dependent* flip — the attacker always on the left, which would
+  move the child's own army around the screen depending on who's attacking; a *static, per-colour*
+  flip is a different thing and is what's shipped. Recorded as a finding, not a rationalization after
+  the fact: it also turns out to be the cheap answer to the ADR's own recorded animation-authoring
+  cost, since the skeleton's packed `Slashing` already strikes leftward in its own local space, and
+  the mirror turns that into a rightward strike on screen for free — black-attacks-white gets
+  cheaper, not more expensive. Also recorded, because building the actual knockout beat is what
+  surfaced it: **local -x on the skeleton arrives on screen as +x**, which is why `detach_head()`'s
+  default direction is `(-1, -0.35)` rather than the naively-readable `(1, -0.35)`. The "Bad"
+  consequence bullet about authoring bespoke clashes on both rigs is updated to note the same
+  asymmetry — a black-attacks-white transfer is now cheaper than a from-scratch white-attacks-black
+  clash, not equally expensive as the original text implied.
+
+**What's not done, and why.** Every `tasks.md` verify line that says "on device," "on the Redmi Note
+13," or reads a number off `tools/frametime.sh` / `adb logcat` is unchecked: three-clashes-back-to-back
+visual confirmation, the head actually leaving frame with its crest, blink visibility, the
+draw-call-with-burst number against the known 28, both SFX playing on device, the phone-muted /
+vibration-off behavior, the cold-start warm check, and — the one that actually matters today —
+**both 15 s screen recordings and the dated yes/no verdict.** None of it can be faked from a laptop;
+the CLAUDE.md rule "never measure on a laptop or a flagship" is exactly the rule that makes today's
+work incomplete rather than merely unfinished. Nothing here has been checked off in
+`openspec/changes/knight-takes-pawn-clash/tasks.md` that wasn't actually verified.
+
+**Next session, first thing:** reconnect the Redmi Note 13, confirm `adb devices` lists it, then run
+Block A/B's on-device verify lines, both Block C recordings, and Block D's measurement sequence
+(idle baseline → `tools/frametime.sh --cold` → `tools/frametime.sh` → idle baseline again) in that
+order, exactly as `tasks.md` specifies — and only then write the dated verdict sentence this entry is
+missing.
+
+## 2026-08-17 — Day 3 (continued): staging fix, on-device verification, checkpoint cut mid-session
+
+Picked up the session the previous agent died mid-way through (API connection error, transcript
+gone). Code on disk was real and mostly done, per its own tasks.md preamble. Device
+`xc95498pssdi7prg` (`2312FPCA6G`) reconnected and authorised; `tools/deploy.sh` ran clean.
+
+**The checkpoint was cut, not answered.** Partway through this session the user decided to
+continue to Day 4 regardless of what Block C's recordings would show, and scoped the rest of the
+day down to one question: does the clash work on the phone? Block C (both 15 s recordings, the
+Ani Chess 3D comparison, the dated verdict) and Block D (the frame-probe/idle-baseline/cold-start
+measurement ritual) were both deferred rather than run — Block C to Day 10, Block D to Day 9, both
+now noted in `docs/mvp-plan.md` at those days and in `openspec/changes/knight-takes-pawn-clash/tasks.md`
+at the relevant blocks. **There is no yes/no verdict from today.** `docs/media/` still does not
+exist.
+
+**The staging fix from before the crash did not hold — the "third" `KNIGHT_CHARGE_X` value (620 →
+500 → 380) was never the actual bug.** Pulling frame-accurate stills (`ffmpeg -vf fps=10` off a
+short `adb shell screenrecord`, not `adb screencap` timing, which isn't accurate enough at this
+scale) showed the skeleton's skull fully overlapping and drawing over the valkyrie's face — not
+just at the charge target, but at the character's **rest position** (home x=300/660, before any
+tap). A pixel scan through head height (`y=1000`) found the two rigs forming one unbroken
+foreground blob from x=131 to x=964 with **zero background gap** between them at idle. The
+`KNIGHT_CHARGE_X` retuning across three prior attempts never touched the actual cause: the attacker's
+*rest and wind-up* position was simply too close to the defender's fixed position for the rigs'
+actual rendered head width (empirically ~470 px combined half-widths against a 360 px root gap).
+
+Fixed by pulling the attacker's rest/wind-up positions further left rather than touching the
+charge target: `scenes/duel_panel.tscn` Knight `position.x` 300 → 100, `scripts/duel_panel.gd`
+`KNIGHT_WINDUP_X` 260.0 → 60.0. `KNIGHT_CHARGE_X` (380) was left alone on purpose — it already
+lands the strike at `IMPACT_POINT.x = 520`, the midpoint between 380 and the defender's 660, so
+contact between the rigs at the instant of the hit is correct; it was the wind-up and rest beats
+that had to stop showing it. Re-verified the same way: at rest and through wind-up the two faces
+are now fully separated; through the charge and at the impact-adjacent frame the two heads touch
+but the valkyrie's whole face — both eyes, nose, mouth — stays visible beside the skull rather
+than under it. One fix, then stopped tuning, per instruction — this is "good enough to record
+beats," not further polished.
+
+**Block A/B on-device verification, `2312FPCA6G`, all via `adb logcat -d | grep PAWNCH_CUE` and
+pulled `screenrecord` frames unless noted:**
+
+- Five beats visible in order; cue log printed `impact`/`recoil`/`exit` once each, in order,
+  every run.
+- `impact` landed at t=0.562–0.572 s across 5 runs (budget ≤0.60 s); `exit` at t=1.590–1.616 s, so
+  tap→panel-closed ≈ 1.89–1.92 s (budget ≤2.0 s).
+- Three clashes fired back to back ~2.5 s apart: cue timings held steady across all three; a
+  screenshot after the third shows the panel fully closed and clean; a fourth tap shows both
+  characters whole, in position, crest and weapon intact.
+- Hitstop/shake: visible stage displacement at impact in every capture, freeze always released
+  (every subsequent run started normally), no board content visible at the panel edges during the
+  shake.
+- Debug overlay: one `PAWNCH_CUE dispatch sfx_delta=…ms haptic_delta=…ms` line per clash, printed
+  together with the `impact`/`recoil`/`exit` lines after `exit`, never mid-clash. Example:
+  `sfx_delta=0.0ms haptic_delta=4.5ms`.
+- Muted-phone / schedule-invariance: media stream set to 0 (`adb shell input keyevent 25` x10),
+  clash run, `impact`/`recoil`/`exit`/dispatch timings unchanged from unmuted runs. Whether the
+  sounds are actually audible and the haptic actually felt were not verified — no ears or sense of
+  touch available from here; only the schedule-invariance and the dispatch calls firing are
+  confirmed.
+- `tools/vfx.py` and `tools/sfx.py` both regenerate their outputs byte-identical (md5 matched
+  before/after a re-run in all three cases).
+
+**Two real defects found, not fixed (out of today's one-fix budget), left unchecked in `tasks.md`
+with the finding recorded there:**
+
+1. **The detached head flies off invisible; a disembodied face is left behind.** `detach_head()`
+   in `scripts/character_rig.gd` duplicates and hides `%Head` and `%Crest` on the `impact` cue,
+   but `bone_007` (the head bone) in the generated rig has a **third** sibling sprite, `%Face`
+   (the eyes/mouth texture, drawn at `z_index=8` over `Head`'s `z_index=7`), which `detach_head()`
+   never touches. The crest visibly flies off correctly (confirmed against the panel-local offset
+   math and directly in frames); the head duplicate does not — a pixel search for the skull's
+   beige tone anywhere near the flying crest across every sampled frame found nothing. Meanwhile
+   `%Face`, still attached to the original (now-hidden) head bone and still driven by `Dying`'s
+   track, is left floating in place — a pair of disembodied eyes hangs where the head used to be.
+   `Dying`'s body track itself is unaffected, as designed. Fix is straightforward (extend
+   `_spawn_duplicate()`/the detach tween to `%Face` too) but not done today.
+2. **The impact burst never renders.** `JuiceBus._burst()` synchronously sets
+   `burst.modulate.a = 1.0` and `burst.scale = Vector2(0.4, 0.4)` before starting its tween, on
+   the same frame as the `impact` cue — by inspection the code looks correct, `Burst` is wired via
+   `NodePath` from `JuiceBus.burst`, and `z_index = 100` should put it on top of everything. On
+   device, across every sampled frame from before to well after `impact`, a pixel search for the
+   burst's fill colour (`(255,226,86)`, ±40 tolerance) anywhere in frame found zero hits. Not
+   diagnosed further today.
+
+**Blink verify line left inconclusive, not checked.** `_reset_stage()` correctly plays
+`Idle Blinking`, and the generated animation does carry a real blink keyframe (`Face` texture:
+closed 0.0–0.1 s, open 0.1–0.6 s of the 600 ms loop) — but 30 fps screen-record frames across the
+150 ms wind-up window never caught a closed-eye frame on either character. Likely just a sampling
+gap, not re-attempted at higher capture density; not checked off on the strength of the animation
+data alone.
+
+**`tasks.md` scoreboard: 7 of 19 checked, up from 2.** Newly checked: both Block A timeline/timing
+tasks, the reset/idempotency task, hitstop-and-shake, and the debug-overlay task. Left unchecked
+with findings recorded in place: the head-detach task (defect 1), the blink task (inconclusive),
+the burst task (defect 2, plus its draw-call half deferred), the SFX task and the sound/haptic
+task (both audibility-blocked, schedule-invariance confirmed), all six Block C/D tasks (deferred,
+noted above), and the devlog task itself (this entry exists, but the verify line demands a verdict
+sentence and draw-call figures that no longer apply today — left open on purpose for whichever
+session runs Block C/D next).
+
+**Next session, first thing:** the two found defects (`%Face` left behind on detach, invisible
+burst) are real and worth ~30 minutes each before Day 9/10 measurement is worth trusting — a
+burst that never renders and a headless-body-with-floating-face look bad in a recording regardless
+of what any number says. Then Block D (Day 9) and Block C (Day 10) in that order, per the
+deferral notes in `docs/mvp-plan.md`.
+
+### Both defects fixed, and the second one was never about the burst
+
+Fixed in code, verified by rendering the real `duel_panel.tscn` through Godot locally on a real
+GPU. **Not verified on the device** — the phone went off USB for the third time today before the
+build could be deployed, so nothing was checked off in
+`openspec/changes/knight-takes-pawn-clash/tasks.md`.
+
+**Defect 1 was two bugs.** `%Face` genuinely was never duplicated — `bone_007` carries `Head`,
+`Face` and `Crest`, and `detach_head()` handled two of the three, leaving a pair of eyes hanging
+in the air. Fixed by adding `Face` to the `unique_name_in_owner` set in `tools/import_craftpix.py`
+and re-running the importer for both packs (ADR-0009 — the scenes are generated, so the fix goes
+in the generator).
+
+The invisible head was **none of the three causes this session guessed at** (modulate keyed to
+zero, z-index behind the background, wrong transform on the duplicate). It was the panel's `Mask`
+and its `clip_contents`: the defender's head bone rests about 45 px from the mask's right edge
+(`global x≈1057` against an edge at `1080`), and the flight tween used `EASE_OUT` — fast start —
+so the head crossed the clip boundary within two or three frames and spent essentially the whole
+0.9 s flight outside it. The crest sits further from the edge and had the margin to read, which is
+why it appeared to fly off alone. Fixed by switching that tween to `EASE_IN`: same direction, same
+distance, same duration, no staging retune.
+
+**Defect 2 was not about the burst at all.** `@export var stage / burst / swing_player /
+impact_player`, wired in the `.tscn` with hand-written `NodePath(...)` values, were **null at
+runtime** — verified by printing them off an unmodified `scenes/main.tscn` while `get_node()` with
+the identical path resolved fine. Three consequences, not one:
+
+- no impact burst — `_burst()` returned at its guard;
+- **no screen shake** — `_shake()` returned at the same guard;
+- **no sound at all** — `.play()` was never called, on any clash, all day.
+
+That last one reaches backwards. The debug overlay's `sfx_delta≈0.0 ms` was timing a call that did
+not happen, and the whole criterion-3 argument earlier today — the rewrite onto audio output
+latency, the compensation, the drop — was conducted about sounds that were not playing. The
+conclusion about `get_output_latency()` stands on its own (the Android driver does not implement
+it, godotengine/godot#35509), but it was never the reason nothing was heard.
+
+Fixed by moving all four to `@onready … = $Path`, the pattern already used everywhere else in this
+codebase, and deleting the dead `NodePath` property lines from the `JuiceBus` node block.
+
+### The same wiring bug reaches back into Day 2, and it invalidates a recorded explanation
+
+`scenes/main.tscn` wires `board = NodePath("../Board")` onto `@export var board: CanvasItem` — the
+same hand-written pattern. Probed directly, off an unmodified scene, nothing written:
+
+```
+PAWNCH_PROBE board=<null>
+PAWNCH_PROBE board_is_null=true
+PAWNCH_PROBE sibling_exists=true
+PAWNCH_PROBE manual_get_node=Board:<ColorRect#36909876685>
+```
+
+So the board recede has never run, in any configuration. That matters because the Day-2 entry
+above ("the wipe cost found and fixed") credits a specific three-part fix with roughly halving the
+dropped vsyncs, and **all three parts were no-ops**:
+
+| Part of the Day-2 fix | What actually happened |
+|---|---|
+| `board` rewired from `NodePath("..")` to `NodePath("../Board")` | null in both configurations; the tween never ran either way |
+| one reused `Tween` instead of a fresh one per toggle | `_tween_board_scale()` returns at its first line when `board` is null |
+| `board.pivot_offset = board.size * 0.5` in `_layout()` | guarded by `if board is Control:`; null is not a Control |
+
+The measurements from that day were real — wipe-drive did fall from `dropped=6,6,4` to a mean of
+1.44. The *explanation* attached to them was not. Whatever produced that improvement, it was not
+this fix, and the cause is not recoverable from the data on hand.
+
+Two things follow. The `duel-panel-and-rig` wipe task stays unchecked, which it already was, but
+now for a better-understood reason. And of its two remaining suspects — the `Mask` resize under
+`clip_contents`, and full-screen fill cost — the first has just been corroborated independently
+from an unrelated direction: that same clip boundary is what swallowed the flying head.
+
+The Day-2 entry above is left as written. It records what was measured and what was believed at
+the time, which is what a devlog is for; this entry is the correction, not a rewrite of it.
+
+`DuelPanel.board` itself is **left unfixed** pending a decision — Day 4 replaces the placeholder
+`ColorRect` with a real `BoardView` and rewires it regardless.
+
+### Both defects verified on device
+
+Phone stayed on USB this time. `tools/deploy.sh` then `adb shell input tap 125 53`, device
+`xc95498pssdi7prg` (`2312FPCA6G`), captured with `adb shell screenrecord` and split with
+`ffmpeg -vf fps=20`.
+
+**Head detach:** frames `f_025`–`f_040` show the skull fully visible through the whole 0.9 s
+flight, the amber crest travelling with it, and the body already headless underneath with no
+floating face left anywhere — the `%Face` fix and the `EASE_IN` tween both hold. The skull exits
+through the mask's right edge by `f_040`, as the clip-margin diagnosis predicted.
+
+**Juice wiring:** the `@onready` fix resolves all three symptoms. Pixel-scanning frames for the
+burst's fill colour (`(255,226,86)`, ±40 tolerance) hit on `f_022`–`f_025`, straddling `impact`,
+and the starburst is visible by eye at the contact point. `f_020` vs `f_024` shows both characters
+shifting together as one rigid block, confirming the shake. For sound, no ears were available on
+this device, so a temporary `player.playing` print sampled right after each `.play()` call (added,
+tested, then reverted — `git diff scripts/juice_bus.gd` is clean) showed `swing_playing=true` and
+`impact_playing=true` on the cue frame: `.play()` is genuinely reached now, where before it was a
+guarded no-op. Audibility itself is inferred from that, not heard.
+
+`openspec/changes/knight-takes-pawn-clash/tasks.md`: head-detach, burst, both sound tasks, and
+the sound/haptic task now checked, with a re-verification note added to the already-checked
+hitstop-and-shake task since its original evidence predates the null-wiring discovery and was
+suspect for the same reason as the Day-2 board explanation. Nothing re-tuned, no measurement
+ritual run, `DuelPanel.board` left untouched, per today's scope.
+
+## 2026-08-17 — Day 4: the walking skeleton, and a sign error that was worth an hour
+
+The day the project became a game you can hand to somebody. A real board, real rules, a real
+move by tap, a real capture that cuts to the real clash, and the board coming back correct
+afterwards — from a cold start, on the phone. `board-and-move-presentation` blocks A through F,
+all checked except one — the human legibility check, which needs a human and is written up below.
+The other late straggler, the tile crest glyph, is closed as **withdrawn by decision**: it was
+specified, built, measured, compromised, measured again and dropped inside this one day, and that
+whole loop is written up below because the measurements are the useful part.
+
+### The measurement first, because it decided whether the day was cheap or expensive
+
+ADR-0011 decision 5 claims black-attacks-white is nearly free: the skeleton is mounted mirrored,
+so its packed `Slashing` supposedly already points at the valkyrie without anybody re-authoring
+a swing. If that were wrong, "both attack directions ship today" stops being a morning's work and
+becomes animation work the plan never budgeted. The ADR's prose and
+`scripts/character_rig.gd:72-73` said opposite things, so it got measured before a line of the
+two-directional clash was written: each rig mounted at `duel_panel.tscn`'s own scale, the sword
+tip's x sampled at nine points across the 0.4 s `Slashing`, in local space and on screen.
+
+```
+                mount scale.x     local Δx        screen Δx
+valkyrie            +0.714         +240 px         +172 px   rightward -> at the skeleton
+skeleton            -0.714         +370 px         -264 px   leftward  -> at the valkyrie
+```
+
+**Both packs' art strikes toward local +x.** The mirror is what turns the skeleton's swing
+around, and it lands leftward on screen, on the valkyrie. So the free ride is real and the
+conclusion stands — but both signs in the ADR's prose were backwards, and the code comment that
+contradicted it was right all along. Black-attacks-white cost nothing beyond deriving the staging
+from a signed direction. Confirmed on device afterwards: the skeleton charges from x=660 to
+x=380 and swings into her.
+
+**[ADR-0011](adr/0011-rotated-board-tall-cells-and-baked-pieces.md) decision 5 was edited in
+place, not superseded** — three places: the Day-3 edit paragraph, the "each rig authors its own
+animations" paragraph, and the Consequences bullet, which now carries the −264 px.
+
+That is not the only in-place edit to ADR-0011 today. **Decisions 2 and 4 were each edited twice,
+and the second pair undoes the first pair** — the tile glyph story below.
+
+### The tile crest glyph: specified, built, measured, compromised, measured again, dropped
+
+ADR-0011 decision 4 gave the board a second type channel: the same six `tools/crests.py` shapes
+drawn again as a 60–68 px glyph on the tile under the figure, ~30 px on the head and twice that on
+the floor. It shipped in the morning's atlas and it was **6.7–10.0% visible** — the figure stands
+on it. The placement justification in the ADR ("the figure stands with its feet low and overhangs
+upward") is simply not this art; chibis are as wide at the hem as at the head, feet at the very
+bottom of the silhouette.
+
+The mechanic that replaced it is arithmetic, and it is the part worth keeping:
+
+> **The band a glyph can show through is `cell height − figure height`, and nothing else.**
+> It does not depend on where in the cell the figure is put. Raising a figure by R buys R px at the
+> bottom of its cell and immediately gives it back, because the figure in the cell *below* is
+> raised by the same R and overhangs upward into exactly that band. Figure height is the only lever.
+
+| figure scale | figure height | glyph visible |
+|---|---|---|
+| ×1.00 | 163 px | 8% |
+| ×0.90 | 146 px | 36% |
+| ×0.80 | 130 px | 63% |
+| ×0.75 | 122 px | 77% |
+| ×0.70 | 114 px | 88% |
+| ×0.65 | 105 px | 97–100% |
+
+So the afternoon shipped the compromise: **×0.80 and a 60 px glyph**, an 83×130 figure with
+64.0–82.2% of its glyph showing, the floor asserted on every bake so it could not silently regress.
+A fifth of every character's height, spent to make the board readable.
+
+**Then the measurement that mattered came back.** Visible area is not legibility. The king and the
+queen differ only in the top of the crown — three orbs against a cross — and that strip is exactly
+what the torso still covers at ×0.80. Measured as *discriminating* signal rather than area,
+**queen vs king is 20.3% (white) / 22.5% (black)**, against 32.5% for the next worst pair (rook vs
+bishop) and 74–77% for knight vs bishop. Two of the six types were not being told apart by the tile
+at all. The compromise cost a fifth of every figure and did not buy the thing it was for.
+
+**Dropped.** The glyph pass, the `GLYPH_*` constants and the six atlas regions are gone, and the
+figure is back at ×1.00 — **123×162 in the 135×170 cell**, ~2 px above the head, ~6 px under the
+feet. `tools/crests.py` is untouched: the same six functions still draw the head crest, which is
+now the only type channel on the board. Board identity is the crest the character wears.
+
+Above ×1.00 was measured rather than assumed. Eight cells of the baked frame composited at the
+170 px pitch: ×1.00 leaves **5 px of background** between one figure's feet and the head of the one
+below, ×1.05 is −3 px, ×1.20 is −29 px with 4.5% of the upper figure covered and the column reads
+as one continuous totem instead of eight characters. ×1.00 is the largest figure the pitch
+separates, and anything above it would also need frames baked taller than the cell and drawn
+outside it — the occlusion decision 2 exists to prevent.
+
+```
+GODOT=/opt/homebrew/bin/godot tools/bake_board_atlas.py
+PAWNCH_BAKE 72 frames, cell=135x170 scale=0.20957 figure=123x162 floor_gap=6
+wrote assets/board/pieces.png 2025x850 (990 KB)      # was 2025x918, 774 KB
+wrote assets/board/pieces.json (72 figure frames)    # was 78 regions
+```
+
+**One number is bigger than the morning's ×1.00 measurement and it is worth knowing why.** That run
+gave 104×163; this one gives 123×162, and the difference is not scale. The rigs' crest anchor moved
+onto the head and grew during the day's duel work — `Crest` position 381 → 187, scale 0.45 → 0.68 in
+rig space — which took ~150 canvas px of empty space off the top of the measured silhouette. The
+bake fits the figure to the cell, so a shorter silhouette becomes a wider one at the same height.
+The board gets more character per cell and a bigger crest on the head, which is exactly the channel
+the glyph's removal leaves carrying the type. Lucky, but worth writing down: an art change in the
+duel panel silently moved a board number, and only the bake's own printout caught it.
+
+The page got shorter and the file got bigger, which is the trade in one line: fewer regions, more
+ink in each. The bake's self-check changed with it — it used to measure glyph visibility against a
+63% floor, it now measures the clear space above every figure's head, because that is the number
+decision 2 depends on.
+
+**`draw_calls_max=4` on the untouched starting position — unchanged.** A whole sprite layer left
+the frame and the number did not move, which is the batching claim proving itself from the other
+direction: 32 glyph quads out of the same atlas page were never their own call. Board + clash is
+still **29**, measured over two debug clashes in the same session. The glyph's whole cost was
+figure height.
+
+**ADR-0011 decisions 2 and 4 were edited in place again, not superseded** — the document's other
+four decisions stand, and a new ADR to reverse one of six would have been ceremony. Decision 4 is
+now "piece type on the board is carried by the head crest alone", and **the measurement table and
+the king/queen number stay in it as the reason it was reversed** — deleting the evidence with the
+decision would have left a bare reversal nobody could check. Decision 4 also records what replaces
+the glyph (heads generated per piece type, future work) and what is true until then: the board
+carries **exactly one ~30 px type channel with no fallback behind it**, which is precisely the risk
+ADR-0011's own Context section flagged before Day 4 started, now load-bearing. The Consequences list
+lost its "legibility gets a fallback that costs nothing" bullet and gained the opposite one.
+
+Every ADR-0011 change today is an edit in place. Git holds the previous text; the ADR reads as
+current truth.
+
+### What shipped
+
+**The invariant, wired and logged.** `GameSession.play_move()` reads the capture off the position
+*before* `apply()`, commits, and only then hands presentation to `_present_capture()` — which is
+deliberately **not awaited**, so `play_move()` stays synchronous and returns the instant the
+position is settled. `DuelPanel.play_capture()` takes three strings and a timestamp and holds no
+reference to the session, so it cannot mutate the position even by accident. `BoardView` gained
+`placement()`, the inverse of `set_position_from_fen()`, and every clash prints both ends:
+
+```
+PAWNCH_CLASH start fen=…/3P4/8/8/… board=rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR
+PAWNCH_CLASH end   fen=…/3P4/8/8/… board=rnbqkbnr/ppp1pppp/8/3P4/8/8/PPPP1PPP/RNBQKBNR
+```
+
+Same FEN at both ends, capture already in it, and the board still showing the black pawn on d5
+while the clash ran. Defended headless too: `godot --headless --script tests/run_headless.gd`
+exits 0 over 58 checks and prints `desync smoke: 20 games, 1200 moves, 152 captures` — seeded, so
+a failure is reproducible. The stub clash records `board.placement()` at the moment it is called,
+so the smoke asserts the board was stale inside all 152 clashes, not just that it agreed
+afterwards. En passant is covered: it is the one capture whose victim is not on the destination
+square, detected as a pawn changing file onto an empty one rather than by a sixth adapter
+function.
+
+**Both attack directions, one timeline.** `WINDUP_BACK = 40` behind the attacker's own home,
+`CHARGE_GAP = 280` short of the defender's, impact at the midpoint, all signed by
+`signf(defender_home - attacker_home)`. For white that reproduces Day 3's authored numbers
+exactly; for black it mirrors them. The cue times came back within 12 ms of each other across the
+two directions.
+
+**The valkyrie's defeat cost one line.** The three faces were rendered side by side rather than
+guessed at — `face_01` neutral, `face_02` blink, `face_03` pain — and then it turned out the
+packs' own `Hurt` and `Dying` already key `Face:texture` to `face_03` on every keyframe, on both
+rigs. So the only code is the guard `if defender == _black: defender.detach_head()`. The head
+comes off for the skeleton and for nobody else, because the asymmetry is a property of the
+character and not of the position.
+
+**Crests name the real pieces.** `1.a4 e6 2.Nf3 Ba3 3.Rxa3` on device gives
+`PAWNCH_CUE clash attacker=white_rook defender=black_bishop`, and the pulled frames show the
+crenellated tower on the valkyrie and the mitre on the skeleton — the skeleton's head flies off
+still wearing the mitre.
+
+**`DuelPanel.board` is finally real, and so is `frame_probe`.** Both exported `NodePath`s are gone
+for `@onready var … = get_node_or_null(…)`. `frame_probe` was written the same way and reports the
+per-clash frame region, so leaving it would have left the same trap armed for whoever reads those
+numbers next. Watched, not assumed: every launch today prints
+`PAWNCH_PANEL board=true frame_probe=true`.
+
+### The numbers, each with the command
+
+| | Budget | Measured |
+|---|---|---|
+| Cold start → interactive board | ≤3.0 s | **2.41 s** |
+| Capture tap → first clash frame | <200 ms | **29–35 ms** |
+| Total clash | ≤2.0 s | **1.90–1.93 s** |
+| Draw calls, board + clash | ~60 | **29** |
+| Sustained fps through the clash | ≥50 | **59.5–59.9** |
+
+**Cold start.** `am start -W`'s clock and `Time.get_ticks_msec()`'s clock have different zeros, so
+they cannot be added; a logcat marker on the device's own clock settles it.
+
+```
+adb shell am force-stop com.pawnch.game && adb logcat -c
+adb shell log -p i -t PAWNCH_HARNESS "cold start begins"
+adb shell am start -W -n com.pawnch.game/com.godot.game.GodotAppLauncher
+adb logcat -d -v time | grep -E "PAWNCH_READY|Displayed com.pawnch"
+```
+```
+TotalTime: 940
+21:55:37.873 Displayed com.pawnch.game/…GodotAppLauncher for user 0: +940ms
+21:55:39.343 PAWNCH_READY interactive_at=1744ms
+```
+
+940 ms is launch to the activity's first frame; 2.410 s is launch to a board that is drawn **and**
+accepting taps, which is what the budget actually means. `InputRouter` prints `PAWNCH_READY` from
+its first `_process` for exactly that reason. Under `screenrecord` the same run costs 1187/1967 ms
+— the recorder is load, which is why the number was taken without it.
+
+**Tap to first clash frame, and total clash.** `adb logcat -d | grep PAWNCH_CUE`, four captures:
+
+```
+white_pawn  x black_pawn    first_frame t=0.031  impact t=0.558  done t=1.925
+black_queen x white_pawn    first_frame t=0.031  impact t=0.560  done t=1.904
+white_rook  x black_bishop  first_frame t=0.029  impact t=0.552  done t=1.921
+white_pawn  x black_pawn    first_frame t=0.035  impact t=0.552  done t=1.896
+```
+
+Two changes were needed before those numbers meant what the budget says, and both are worth
+keeping. Cue zero used to be the panel's own entry; it is now **the tap**, stamped in
+`InputRouter` and threaded through `tap → play_move → _present_capture → play_capture`. And
+"first clash frame" is not the frame the tap lands on — `wipe_in` is keyed from zero width, so
+that frame still presents nothing. The cue fires from `RenderingServer.frame_post_draw` on the
+first frame with `Mask.size.x > 0`. `_process` would have been wrong and would have reported
+~0 ms, because `_process` for the tap's own frame runs after `_unhandled_input` and before
+anything is drawn. `done` fires after the board has been synced and input has returned, so it is
+the whole budget rather than the panel's animation length.
+
+**Draw calls.** `tools/deploy.sh`, then `WINDOW=15 tools/frametime.sh` over a window containing
+1.e4 d5 2.exd5 and its clash:
+
+```
+PAWNCH_FRAME frames=297 fps=59.9 dropped=1 worst_gap=28.8ms@5 busy_p50=17.25 busy_p95=28.00 busy_max=28.00 draw_calls_max=7 vsync=16.67
+PAWNCH_FRAME frames=297 fps=59.5 dropped=2 worst_gap=26.8ms@4 busy_p50=21.90 busy_p95=23.01 busy_max=23.01 draw_calls_max=29 vsync=16.67
+PAWNCH_FRAME frames=298 fps=59.6 dropped=0 worst_gap=0.0ms@-1 busy_p50=18.03 busy_p95=21.13 busy_max=21.62 draw_calls_max=29 vsync=16.67
+```
+
+**29, not the 4 + 28 = 32 that was expected**, and the reason is pleasant: the panel covers the
+board, and the selection outlines that cost the board its extra 3–6 calls are cleared before the
+clash begins. The clash costs the panel's known 28 plus one for the board underneath. The board is
+genuinely free during a clash, which is what ADR-0002 predicted when it said the board is dimmed
+and static.
+
+**Frame timing.** The clash regions themselves report `frames=115 dropped=1 worst_gap=25.7ms`,
+`frames=114 dropped=0`, `frames=115 dropped=1 worst_gap=25.1ms`, `frames=114 dropped=0`. Two of
+the four clashes ran with zero dropped vsyncs; the other two dropped one each at ~25 ms. The idle
+baseline in the same sessions drops 1–2 per five-second window on its own, both at frame 4–5 —
+the engine's own cold-start stall ADR-0006 names as a property of the instrument. **So there is no
+dropped vsync attributable to the clash.** The full `--cold` ritual stays deferred to Day 9 and is
+not claimed here.
+
+**Input freeze.** `GameSession.tap()` returns immediately while frozen, so a tap is *dropped*,
+never buffered. 1.e4 d5 2.exd5, then
+`adb shell 'for i in $(seq 20); do input tap 472 945; done'` spanning the whole 1.9 s clash — an
+on-device loop rather than 20 adb round trips, so the taps are certain to land inside it. Zero
+`PAWNCH_SELECT`, one `PAWNCH_MOVE`, and the next deliberate tap comes back clean with
+`PAWNCH_SELECT d8 queen destinations=d7,d6,d5`. Three presses of the debug button 0.4 s apart
+produce exactly one clash.
+
+**The debug button moved. It is now `adb shell input tap 956 2336`.** `125 53` is dead — it lands
+on a1. The button is anchored bottom-right, 200×80 at x 856–1056, y 2296–2376, which is 416 px
+below the last rank of a board that occupies y 520–1880.
+
+### What is not done, and why
+
+**Piece-type legibility at board scale.** The one thing still unchecked, deliberately: it needs a
+human looking at the phone and there was not one. Everything it needs is prepared — a frame of the
+starting position at full device resolution, re-pulled after the ×1.00 re-bake, is at
+`build/day4/start-position-1080x2400.png` (`build/` is gitignored, so it is on disk, not in the
+repo). What the tester is being asked about is now the **head crest and nothing else**, ~30 px,
+with no second channel behind it. The king/queen numbers above are the reason the tile glyph was
+withdrawn, not a property of the shipped board: on the head both crowns are unoccluded. If a
+playtester still cannot do it, the ladder is heads drawn per piece type, then a larger or
+higher-contrast crest, then the Unicode swap.
+
+### Things earlier in the day that would otherwise be lost
+
+- **`adb exec-out screencap -p` returns a stale frame on this device.** Five shots 200 ms apart
+  came back pixel-identical, including two taken mid-clash while the duel was visibly animating.
+  It is not a rendering bug and not a Godot bug — screencap is simply not a usable sampler for
+  anything moving here. Everything moving today was captured with
+  `adb shell screenrecord --size 1080x2400 --time-limit N` and split with `ffmpeg -vf fps=30`.
+- **logcat's ring buffer ages lines out inside about a minute while `screenrecord` is running.**
+  Dump the log immediately after the taps, before waiting for the recording to finish. A first
+  attempt at the tap sequence came back with only the last four `PAWNCH_MOVE` lines.
+- **Godot 4.7 does not import `.json`**, so `export_presets.cfg` needed an
+  `include_filter="assets/board/*.json"` before the atlas region map reached the device at all.
+- **The board figures bake without the sword, and that is the pack's own doing.** `Idle Blinking`
+  keys `Sword:modulate:a` to 0.0 on its first key. Keeping the sword would also have cost 30% of
+  every figure's size — the valkyrie's idle sword makes her union bbox 829 px wide against 572 px
+  without it, and cell width is the binding constraint. Board identity is the head crest — after
+  the evening's reversal, only the head crest; ADR-0007's "crest and weapon" is a duel-panel
+  statement.
+- **A full-screen `ColorRect` ate every touch for twenty taps.** `Main` in `scenes/main.tscn` is a
+  `ColorRect`, and a `Control` defaults to `mouse_filter = STOP`, so the background swallowed
+  everything before `_unhandled_input` ever ran — while the router happily logged
+  `PAWNCH_INPUT board=true session=true`. `Board` and `DuelPanel` were already `mouse_filter = 2`;
+  the background was not.
+
+### Left open on purpose
+
+`knight-takes-pawn-clash` and `duel-panel-and-rig` stay unarchived. Both still carry debt: the
+deferred kill-checkpoint recordings and verdict (Day 10), the deferred frame-timing ritual
+(Day 9), and the duel panel's wipe cost. The board did not make the wipe measurably worse — the
+panel's `draw_calls_max` with a full board behind it is 29 against the 28 measured with a flat
+placeholder — so the wipe chase stays with `duel-panel-and-rig` where it belongs.
+
 ## Ideas for later
 
+- **Regenerate the head per piece type, instead of one shared head wearing a swapped crest.** This
+  is the intended replacement for the withdrawn tile glyph and the answer to the board having one
+  ~30 px type channel: if the knight's head *is* a horse rather than a badge of one, the type is
+  carried by the whole silhouette and survives being small. Six heads per side through the same
+  generate-then-cut pipeline the crests already use, so it is a `tools/` step and not drawing. Not
+  today, and not while a bespoke clash is still the sprint's riskiest unfinished thing — it is
+  parked here on purpose, named in ADR-0011 decision 4.
 - **Mini-arena instead of a training mode.** A small preset board with a "capture everything in N
   moves" win condition — no lesson text, no hints, no progression, no localisation. It answers the
   same wish a training mode answers, but it works *on* the hypothesis under test instead of beside
@@ -1133,6 +1785,13 @@ measurement method, which ADR-0006 superseded back on Day 1 — corrected to poi
   The only thing it needs from the sprint is
   [ADR-0011](adr/0011-rotated-board-tall-cells-and-baked-pieces.md) decision 6 — `BoardView` takes
   its dimensions and start FEN as parameters.
+- **Draw Day 5's legal-move highlight as a textured quad from the board atlas, not a `draw_rect`
+  outline.** Today's minimal marks are unfilled `draw_rect`s, and an outline does not batch with
+  the filled squares around it: the untouched starting position is `draw_calls_max=4`, and the
+  windows containing a tap sequence read 7, 8 and 10. A highlight taken out of `pieces.png` would
+  share the batch the figures already share and cost **zero** extra draw calls. It is
+  affordable either way against ~60 — this is a reason to prefer one implementation over another
+  on Day 5, not work for today.
 - **The orange "this piece is defended" highlight**, if difficulty levels ever exist. It does not
   need a sixth adapter function: swap the enemy piece in the FEN for one of ours, hand the move to
   the opponent, and ask `legal_moves` who takes it back. Pins fall out correctly for free. ~30 lines
