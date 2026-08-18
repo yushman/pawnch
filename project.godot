@@ -13,6 +13,10 @@ config_version=5
 config/name="pawnch"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7")
+; The back button is routed by scripts/input_router.gd (move-input spec): clash
+; -> finish it, selection -> clear it, neither -> the platform default, which
+; is the quit() the engine would have done here.
+config/quit_on_go_back=false
 
 [display]
 

@@ -42,6 +42,7 @@ const WARM_VOLUME_DB := -80.0
 
 var _shake_tween: Tween
 var _burst_tween: Tween
+var _freeze_released := false
 
 
 func play_swing() -> void:
@@ -70,11 +71,32 @@ func fire_impact(local_pos: Vector2) -> Dictionary:
 	}
 
 
-# Freeze via Engine.time_scale, released by a timer that ignores it -- a timer
-# created with the default (scaled) settings never fires at time_scale 0.
+# Freeze via Engine.time_scale, released by polling the frame signal rather than
+# by a timer. A timer created with the default (scaled) settings never fires at
+# time_scale 0, and the unscaled one that replaced it could not be cut short --
+# a skip landing inside the hitstop then held input for up to HITSTOP_SEC after
+# the panel had already closed. Frames are emitted whatever the time scale is,
+# and a timer only ever fired on a frame boundary anyway, so the granularity is
+# unchanged.
 func _freeze() -> void:
 	Engine.time_scale = 0.0
-	await get_tree().create_timer(HITSTOP_SEC, true, false, true).timeout
+	_freeze_released = false
+	var until_usec := Time.get_ticks_usec() + int(HITSTOP_SEC * 1_000_000.0)
+	while not _freeze_released and Time.get_ticks_usec() < until_usec:
+		await get_tree().process_frame
+	_freeze_released = false
+	Engine.time_scale = 1.0
+
+
+# Everything this bus can leave running, stopped. Called from the panel's stage
+# reset, so a clash finished early cannot bleed a shake, a burst or a stopped
+# clock into the next one. Idempotent, and safe when nothing is running.
+func cancel() -> void:
+	_freeze_released = true
+	if _shake_tween and _shake_tween.is_valid():
+		_shake_tween.kill()
+	if _burst_tween and _burst_tween.is_valid():
+		_burst_tween.kill()
 	Engine.time_scale = 1.0
 
 

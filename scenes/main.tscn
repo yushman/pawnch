@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://bxqmc0y3vqfgk"]
+[gd_scene load_steps=7 format=3 uid="uid://bxqmc0y3vqfgk"]
 
 [ext_resource type="Script" path="res://scripts/frame_probe.gd" id="1_probe"]
 [ext_resource type="PackedScene" path="res://scenes/duel_panel.tscn" id="2_panel"]
 [ext_resource type="Script" path="res://scripts/board_view.gd" id="3_board"]
 [ext_resource type="Script" path="res://scripts/game_session.gd" id="4_session"]
 [ext_resource type="Script" path="res://scripts/input_router.gd" id="5_input"]
+[ext_resource type="Script" path="res://scripts/game_over_banner.gd" id="6_banner"]
 
 [node name="Main" type="ColorRect"]
 anchors_preset=15
@@ -35,6 +36,16 @@ script=ExtResource("4_session")
 script=ExtResource("5_input")
 
 [node name="DuelPanel" parent="." instance=ExtResource("2_panel")]
+
+[node name="GameOverBanner" type="Control" parent="."]
+layout_mode = 1
+anchors_preset=15
+anchor_right=1.0
+anchor_bottom=1.0
+grow_horizontal=2
+grow_vertical=2
+mouse_filter = 2
+script=ExtResource("6_banner")
 
 [node name="DebugButton" type="Button" parent="."]
 layout_mode = 1

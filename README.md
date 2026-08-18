@@ -5,10 +5,11 @@ impact, screen shake, VFX, sound and haptics — instead of a piece silently van
 
 [Русская версия](README.ru.md)
 
-> **Status: pre-release, in development.** There is no installable build yet. This repository
-> currently contains the research, the analysis, the architecture decisions and the day-by-day
-> plan — the build has not started. Nothing below is measured yet; the numbers land here when
-> they exist.
+> **Status: in development, day 5 of 12.** There is no installable build yet, but the game
+> runs on the target phone: a full game can be played to checkmate, every capture cuts to the
+> duel, and the numbers below are measured on that device rather than estimated. What is
+> missing is the opponent, five of the six piece types' clashes, and the sound and polish
+> pass. The one animation that exists has not yet been judged against the app it has to beat.
 
 ## What it is
 
@@ -39,6 +40,28 @@ That is the entire bet, and it is honestly a bet about craft, not about an undis
 The full reasoning, including a round of research that returned **No-go** before the scope was
 narrowed, is in [docs/research.md](docs/research.md).
 
+## Playing it
+
+Move a piece by **tapping it and then its destination**, or by **dragging it there** — both go
+through the same rules, because a six-year-old and a ten-year-old do not reach for the same
+gesture. A dragged piece follows the finger and goes back where it started if it is released
+somewhere illegal.
+
+The board marks four things, all as quads out of the same atlas the pieces come from: the
+**selected** piece, every square it may **move** to, every square holding a piece it may
+**capture** (a red ring, including en passant, whose destination square is empty), and the cell of
+a **king in check**.
+
+A clash can be **skipped by tapping anywhere** while it plays. The Android **back button** does
+the least destructive thing available: it finishes a clash if one is playing, else clears the
+selection, else behaves the way back normally does. Neither is the only way to anything.
+
+When a game ends, a banner says which ending it was and who won without requiring anyone to read —
+the winner's king standing crowned, the loser's on its back and greyed, or two equal kings and an
+equals sign for a draw — with a restart arrow underneath. The board stays visible under both.
+
+Both colours are played on the same device; the bot lands later.
+
 ## Deliberately not in this project
 
 This prototype is aggressively scoped. **No lessons, puzzles, hints or coaching. No story
@@ -59,18 +82,21 @@ The animation is the product, so the frame budget is the spec, not a nice-to-hav
 
 | | Target | Measured |
 |---|---|---|
-| Sustained fps through the clash | ≥50 | 59.5–59.9 |
-| Capture tap → first clash frame | <200 ms | 29–35 ms |
-| Total clash duration | ≤2.0 s | 1.90–1.93 s |
-| Cold start → interactive board | ≤3.0 s | 2.41 s |
+| Sustained fps through the clash | ≥50 | 59.6 |
+| Capture tap → first clash frame | <200 ms | 30–33 ms |
+| Total clash duration | ≤2.0 s | 1.90–1.92 s |
+| Cold start → interactive board | ≤3.0 s | 2.43–2.56 s |
 | Draw calls, board + clash on screen | ~60 | 29 |
+| Draw calls, board with selection and destination marks | ~60 | 4 |
 
-Measured 2026-08-17 over four captures. Frame times come from inside the engine, never from
-`dumpsys gfxinfo` ([ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md)); the
-clash windows report 0–1 dropped vsyncs each, against an idle baseline in the same sessions that
-drops 1–2 per five seconds on its own, so no dropped vsync is attributable to the clash. The
-cold-start figure is launch to the first frame that draws the board *and* accepts a tap
-(`PAWNCH_READY` in logcat); the activity's own first frame comes 940 ms after launch.
+Measured 2026-08-18 over four captures and three cold starts. Frame times come from inside the
+engine, never from `dumpsys gfxinfo`
+([ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md)); the clash windows report
+0–1 dropped vsyncs each, against an idle baseline taken in the same session that drops 1 per three
+five-second windows on its own, so no dropped vsync is attributable to the clash. The cold-start
+figure is launch to the first frame that draws the board *and* accepts a tap (`PAWNCH_READY` in
+logcat); the activity's own first frame comes 917–995 ms after launch. The board's marks cost
+nothing: they are textured quads from the piece atlas and batch with the figures.
 
 Measured on: **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`), MediaTek Helio G99, Mali-G57 MC2,
 1080x2400, Android 16 (SDK 36), arm64-v8a. Its GPU is a step above the Snapdragon 680 /
@@ -88,8 +114,27 @@ tools/build.sh              # headless export -> build/pawnch.apk
 tools/deploy.sh             # build, install and launch on the attached device
 tools/check_no_internet.sh  # fails if the APK declares android.permission.INTERNET
 tools/frametime.sh --cold   # cold-start ms, worst frame ms, frames over 20 ms
-godot --headless --script tests/run_headless.gd   # perft, board, hit test, desync smoke
+godot --headless --script tests/run_headless.gd   # the whole test suite, ~45 s
 ```
+
+`tests/run_headless.gd` is a small runner that decides the exit code — 2 if the suite did not
+compile, 1 if it ran fewer checks than its floor, 0 otherwise — and every check lives in
+`tests/suite.gd`, which is where new ones go. The suite covers perft (20 / 400 / 8902 / 197281),
+the board and its hit test, tap and drag through the real scene, the game-over outcomes and
+restart, the back button, **200 random legal games asserting the board equals the rules after
+every move**, and **a clash skipped at every 10 ms offset across its full 1.90 s** asserting the
+end state is identical to the unskipped run every time. It needs no device and no display.
+
+`tests/render_board_states.gd` renders nine frames of every board state — start position, the
+move glow, the capture ring, a piece mid-drag, a king in check, both game-over banners and a
+restarted board — to a directory:
+
+```
+godot --rendering-driver opengl3 --script tests/render_board_states.gd -- /tmp/pawnch-shots
+```
+
+Like `tests/render_board_pieces.gd` it needs a real window and the OpenGL driver, not
+`--headless`.
 
 The build carries a **Duel** button in the bottom-right corner that plays the clash without a
 capture. On the 1080×2400 device that is `adb shell input tap 956 2336` — it sits well below the

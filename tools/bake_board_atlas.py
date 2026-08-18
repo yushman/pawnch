@@ -6,8 +6,9 @@ One command, from nothing:
     tools/bake_board_atlas.py
 
 Renders the 72 board frames -- six piece types x two colours x six frames of the
-pack's own `Idle Blinking` -- through tests/render_board_pieces.gd, packs them
-into a single page, and writes the page and its region map to assets/board/.
+pack's own `Idle Blinking` -- through tests/render_board_pieces.gd, draws the
+four cell marks procedurally, packs the lot into a single page, and writes the
+page and its region map to assets/board/.
 
 The renderer needs a real window: `--headless` installs the dummy rendering
 server and `Viewport.get_texture()` returns null under it. Nothing here passes
@@ -21,7 +22,7 @@ import subprocess
 import sys
 import tempfile
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "assets", "board")
@@ -38,8 +39,24 @@ COLORS = {"white": "valkyrie", "black": "skeleton_warrior"}
 
 # The page held six tile crest glyphs for one afternoon. They are gone with
 # ADR-0011 decision 4's reversal -- the head crest is the only type channel on the
-# board now -- so the page is figures and nothing else.
-REGIONS = len(TYPES) * len(COLORS) * FRAMES
+# board now. What it does carry beside the figures is the four cell marks: they
+# are quads out of this page precisely so they batch with the figures, where
+# Day 4's draw_rect outlines cost +3..6 draw calls.
+FIGURE_REGIONS = len(TYPES) * len(COLORS) * FRAMES
+MARKS = ["move", "capture", "check", "selected"]
+REGIONS = FIGURE_REGIONS + len(MARKS)
+
+# Drawn at 4x and downscaled, because every mark has a curved edge and none of
+# them may show a stair-step next to the figures' own antialiased silhouettes.
+SS = 4
+
+# Four marks, told apart by geometry first and colour second, so that a
+# screenshot settles which is which without a colour-picker: a centred blob, an
+# inscribed ring, a wash hugging the cell's edges, and a frame on them.
+MOVE_COLOR = (56, 189, 248, 255)
+CAPTURE_COLOR = (232, 52, 40, 255)
+CHECK_COLOR = (255, 72, 40, 255)
+SELECTED_COLOR = (245, 158, 11, 255)
 
 
 def render_frames(out_dir, godot):
@@ -58,6 +75,89 @@ def render_frames(out_dir, godot):
 	return len(written)
 
 
+def _mark_move():
+	"""An empty square a piece may move to: a soft blob in the middle of the cell.
+
+	Nothing stands on an empty square, so the centre is the one place on the cell
+	that is guaranteed clear -- and a blob cannot be confused with the ring or
+	either of the two edge marks at arm's length.
+	"""
+	alpha, w, h = _alpha_canvas()
+	r = 32 * SS
+	# Blurred on the full cell, not on a tight sub-image: clipping the blur at
+	# the disc's own bounding box leaves a hard square edge where the falloff is
+	# cut off, which is exactly what the first bake showed.
+	ImageDraw.Draw(alpha).ellipse(
+		[w // 2 - r, h // 2 - r, w // 2 + r, h // 2 + r], fill=236)
+	return MOVE_COLOR, alpha.filter(ImageFilter.GaussianBlur(r * 0.30))
+
+
+def _mark_capture():
+	"""A square holding a piece that may be taken: a ring round the figure on it.
+
+	Drawn over the character rather than under it -- a figure fills 123 of the
+	cell's 135 px and hid all but a sliver of the first ring baked here -- and
+	dropped to sit below the head, because the crest on that head is the board's
+	only channel for what the piece is and a ring across it would cost more than
+	it buys.
+	"""
+	alpha, w, _h = _alpha_canvas()
+	r = 58 * SS
+	cy = 106 * SS
+	ImageDraw.Draw(alpha).ellipse(
+		[w // 2 - r, cy - r, w // 2 + r, cy + r], outline=255, width=10 * SS)
+	return CAPTURE_COLOR, alpha
+
+
+def _mark_check():
+	"""The attacked king's cell: a wash held against the cell's own edges.
+
+	The king is standing in the middle of it, so a centred mark would be behind
+	him. Ramping in from the edges leaves the figure legible and still reads as
+	the whole square being on fire.
+	"""
+	alpha, w, h = _alpha_canvas(255)
+	inset = 14 * SS
+	ImageDraw.Draw(alpha).rounded_rectangle(
+		[inset, inset, w - 1 - inset, h - 1 - inset], radius=18 * SS, fill=0)
+	return CHECK_COLOR, alpha.filter(ImageFilter.GaussianBlur(16 * SS)) \
+		.point(lambda v: int(v * 0.92))
+
+
+def _mark_selected():
+	"""The piece the finger is on: a frame on the cell's edges.
+
+	The edges are the one part of the cell the figure never occupies, which is
+	why this mark was already an outline before it moved onto the page.
+	"""
+	alpha, w, h = _alpha_canvas()
+	m = 4 * SS
+	ImageDraw.Draw(alpha).rounded_rectangle(
+		[m, m, w - 1 - m, h - 1 - m], radius=16 * SS, outline=255, width=7 * SS)
+	return SELECTED_COLOR, alpha
+
+
+def _alpha_canvas(fill=0):
+	w, h = CELL_W * SS, CELL_H * SS
+	return Image.new("L", (w, h), fill), w, h
+
+
+def marks():
+	"""The four marks at cell size, one flat colour each with a shaped alpha.
+
+	Colour and alpha are kept apart all the way down to the resize: downscaling a
+	sparse RGBA drags the transparent pixels' black into every soft edge, which
+	on the first bake put a grey box round the move glow.
+	"""
+	out = {}
+	for name in MARKS:
+		color, alpha = globals()["_mark_%s" % name]()
+		image = Image.new("RGBA", (CELL_W, CELL_H), color)
+		image.putalpha(alpha.resize((CELL_W, CELL_H), Image.LANCZOS))
+		out[name] = image
+	return out
+
+
 def pack(frame_dir):
 	rows = (REGIONS + COLUMNS - 1) // COLUMNS
 	page_w = COLUMNS * CELL_W
@@ -65,7 +165,7 @@ def pack(frame_dir):
 	page = Image.new("RGBA", (page_w, page_h), (0, 0, 0, 0))
 
 	regions = {"page": "res://assets/board/pieces.png", "cell": [CELL_W, CELL_H],
-	           "frames": FRAMES, "figures": {}}
+	           "frames": FRAMES, "figures": {}, "marks": {}}
 
 	index = 0
 	for color, family in COLORS.items():
@@ -80,6 +180,13 @@ def pack(frame_dir):
 				index += 1
 			regions["figures"]["%s_%s" % (color, type_name)] = boxes
 
+	for name, image in marks().items():
+		x = (index % COLUMNS) * CELL_W
+		y = (index // COLUMNS) * CELL_H
+		page.paste(image, (x, y))
+		regions["marks"][name] = [x, y, CELL_W, CELL_H]
+		index += 1
+
 	os.makedirs(OUT_DIR, exist_ok=True)
 	page.save(PAGE_PNG)
 	with open(REGION_JSON, "w") as f:
@@ -89,10 +196,12 @@ def pack(frame_dir):
 
 
 def verify(page, regions):
-	named = sum(len(v) for v in regions["figures"].values())
+	named = sum(len(v) for v in regions["figures"].values()) + len(regions["marks"])
 	assert named == REGIONS, "region map names %d regions, expected %d" % (named, REGIONS)
+	assert sorted(regions["marks"]) == sorted(MARKS), "marks are %s" % sorted(regions["marks"])
 	assert page.width <= 2048 and page.height <= 1024, "page is %dx%d" % page.size
-	for x, y, w, h in [b for v in regions["figures"].values() for b in v]:
+	boxes = [b for v in regions["figures"].values() for b in v] + list(regions["marks"].values())
+	for x, y, w, h in boxes:
 		assert x >= 0 and y >= 0 and x + w <= page.width and y + h <= page.height, \
 			"region %s escapes the %dx%d page" % ([x, y, w, h], page.width, page.height)
 
@@ -138,7 +247,7 @@ def main():
 
 	print("wrote %s %dx%d (%d KB)"
 	      % (PAGE_PNG, page.width, page.height, os.path.getsize(PAGE_PNG) // 1024))
-	print("wrote %s (%d figure frames)" % (REGION_JSON, count))
+	print("wrote %s (%d figure frames, %d marks)" % (REGION_JSON, count, len(MARKS)))
 
 
 if __name__ == "__main__":

@@ -1765,6 +1765,297 @@ deferred kill-checkpoint recordings and verdict (Day 10), the deferred frame-tim
 panel's `draw_calls_max` with a full board behind it is 29 against the 28 measured with a flat
 placeholder — so the wipe chase stays with `duel-panel-and-rig` where it belongs.
 
+## 2026-08-18 — Day 5: chess that behaves, a clash that cannot break, and the phone came back
+
+The day `game-outcomes-and-clash-skip` closed, all 22 tasks. It ran in two halves separated by a
+piece of hardware: Blocks A–D were built and headless-verified with **no phone attached at all**
+(`adb devices` empty, adb server restarted, no wireless pairing in this repo), and ten tasks sat
+unchecked with nothing wrong with them except that nobody had seen them on the target. Then the
+phone came back and the whole device pass ran in one session. Nine of the ten passed as written.
+The tenth failed, and it failed on something no headless test in this repo could ever have found.
+
+Also: the first time this thing was **played** rather than demonstrated — a full game to
+checkmate, by finger, on the phone. That list is at the bottom and it is the most valuable thing
+in this entry.
+
+### What shipped
+
+**The chess half.** Check is marked on the board — a red wash ramping in from the cell's own
+edges, a quad out of the board atlas, pushed by `GameSession` from `RulesAdapter.status()`, never
+worked out on the view's side. Checkmate and stalemate are told apart by the rules and reported.
+A game-over banner that does not need reading: the winner's king standing crowned, the loser's on
+its back and drained to grey, or two equal kings and an equals sign for a draw, drawn into the
+520 px bands the board leaves free so the position that ended the game stays visible underneath.
+Restart from the banner throws the `RulesAdapter` away and builds a new one rather than unwinding
+the old position.
+
+**The input half.** Drag alongside tap, both through one `GameSession.tap()` call site — a tap is
+a drag that went nowhere, not a second code path. The dragged piece is drawn under the finger with
+its origin cell emptied, and the model is never told, which is why a bad release needs no undo.
+Legal-move glow and capture ring as two different marks, both quads from `pieces.png`, decided by
+the rules rather than by whether the board has a sprite there — so **en passant gets the ring even
+though its destination square is empty**. The hardware back button does the least destructive
+thing available.
+
+**The clash half.** One idempotent `finish_now(path)` that every ending goes through — natural
+end, tap, back button, and the platform backgrounding the app. A sequence number is what makes it
+work from the outside: `play_capture()` bumps it, every beat carries the number it started with,
+`_wait_until()` returns false the moment the number stops being current, and `_finish()` bumps it
+again. A clash finished mid-flight resumes on the next frame, finds a sequence that is no longer
+its own, and returns without touching a stage somebody else has already reset. A clash lookup
+that cannot return nothing. Backgrounding finishes a clash rather than resuming it.
+
+### The numbers, each with the command
+
+**The suite.** `godot --headless --script tests/run_headless.gd`, exit 0:
+
+```
+desync smoke: 200 games, 11984 moves, 1540 captures, seed 20260817
+skip offsets: 191 fired every 10ms across the whole 1.90s clash, 3.2s
+PAWNCH_TEST PASS checks=123 passed=123 failed=0 min=123 elapsed=45.7s
+```
+
+95 checks in 7.3 s at the start of the day, 121 in 43.8 s after Block D, 123 in 45.7 s after the
+back-button fix. **36.9 s of that 43.8 is the 200-game desync sweep**, perft is 3.3 s, the skip
+sweep 3.2 s and everything else together under half a second. It is not I/O — with stdout to
+`/dev/null` the same two suites still take 40.2 s, so it is the rules engine: move generation for
+every candidate piece plus **two `RulesAdapter.status()` calls per move**, one for the
+`PAWNCH_MOVE` log line and one in `_refresh_outcome()`. 45 s is past "run it without thinking" and
+short of "avoid running it". If Day 7's CI wants it faster, deduplicating that pair is the first
+thing to try; cutting the game count the plan asked for is not.
+
+**191 skips, and none of them waits out its own offset**, which is why they cost 3.2 s rather than
+three minutes. `play_move()` already carries the moment the tap landed, so a tap timestamped N
+seconds in the past starts a clash that is already N seconds old: the beats before N fire in one
+frame and it stalls at the first beat past it. Same code path a real skip takes; the only thing
+faked is the clock the beats read, and the clock is real time in both cases.
+
+**Clash timing, re-measured on the device because Block C changed how it is kept.** `_wait_until()`
+and `JuiceBus._freeze()` both stopped using `SceneTree` timers and started polling
+`process_frame`, because a timer cannot be cut short and a skip has to be able to land inside the
+90 ms hitstop. The reasoning is sound and a timer only ever fired on a frame boundary anyway —
+but these are numbers that were tuned on Day 4 and measured on the phone, so they were measured
+again rather than assumed. `adb logcat -d | grep PAWNCH_CUE`, four natural captures:
+
+```
+white_pawn   x black_pawn    first_frame t=0.033  impact t=0.561  done t=1.908
+black_queen  x white_pawn    first_frame t=0.032  impact t=0.561  done t=1.903
+black_queen  x white_pawn    first_frame t=0.031  impact t=0.556  done t=1.921
+white_bishop x black_queen   first_frame t=0.030  impact t=0.559  done t=1.904
+```
+
+**Tap to first clash frame 30–33 ms against Day 4's 29–35; total clash 1.903–1.921 s against Day
+4's 1.90–1.93.** Unchanged, inside the noise of the two runs. The polling really does have the
+same granularity the timers had.
+
+**Frame cost.** `WINDOW=15 tools/frametime.sh` over a window containing `2.exd5` and `2...Qxd5`:
+
+```
+PAWNCH_FRAME frames=297 fps=59.6 dropped=0 worst_gap=0.0ms@-1  … draw_calls_max=4
+PAWNCH_FRAME frames=297 fps=59.6 dropped=1 worst_gap=34.2ms@200 … draw_calls_max=29
+PAWNCH_FRAME frames=297 fps=59.6 dropped=2 worst_gap=30.1ms@151 … draw_calls_max=29
+PAWNCH_CLASH region=clash frames=113 dropped=0 worst_gap=0.0ms
+PAWNCH_CLASH region=clash frames=113 dropped=1 worst_gap=27.9ms
+```
+
+29 draw calls and 0–1 dropped vsyncs per clash — Day 4's numbers exactly. The idle baseline taken
+in the same session immediately before, with no interaction at all, drops 1 across three windows
+with a 27.5 ms worst gap, so the clash's single drop is at the level the device drops on its own
+and **no dropped vsync is attributable to the clash** (ADR-0006).
+
+**The marks are free on the phone, which is what Day 4's `## Ideas for later` note predicted.**
+`WINDOW=15 tools/frametime.sh` over a window of nothing but selections: `draw_calls_max=4` in all
+three windows, against Day 4's 7–10 for the same board drawn with `draw_rect` outlines. The
+banner costs `draw_calls=14` and `13` against 4, i.e. +9/+10, and only ever once the game is
+already over.
+
+**Cold start, re-measured.** `am start -W`'s clock and `Time.get_ticks_msec()`'s have different
+zeros, so the device's own logcat clock settles it:
+
+```
+adb shell am force-stop com.pawnch.game && adb logcat -c
+adb shell am start -W -n com.pawnch.game/com.godot.game.GodotAppLauncher
+adb logcat -d -v time | grep -E "PAWNCH_READY|Displayed com.pawnch"
+```
+
+Three cold starts: TotalTime 995 / 945 / 917 ms to the activity's first frame, and **2.56 / 2.43 /
+2.43 s** to a board that is drawn *and* accepting taps. Day 4 measured 2.41 s. Budget is 3.0 s.
+
+### What broke
+
+**One back press arrives twice, and it quit the app.** The only device task that failed. Android
+13+ hands a single back press to the engine through both the legacy `onBackPressed` path and the
+predictive-back callback, ~13 ms apart, and with `application/config/quit_on_go_back=false` both
+of them reach `InputRouter._notification()`. So one press with a piece selected printed
+
+```
+PAWNCH_BACK selection_cleared
+PAWNCH_BACK quit
+```
+
+and `adb shell pidof com.pawnch.game` came back empty — the app closed. The move-input spec says
+in as many words that the app stays open on that branch, so this was a bug against an accepted
+requirement rather than a decision to take, and it was fixed: `_back()` drops a second request
+inside `BACK_DEDUPE_MSEC` (250 ms — two orders of magnitude above the duplicate, well below a
+deliberate double press), prints `PAWNCH_BACK duplicate`, and returns false. It is the same class
+of platform duplicate as the synthetic mouse event the router has always dropped by
+`device == -1`, and it now sits next to it in the file.
+
+**Nothing in this repo could have found it except the phone.** The headless suite delivers
+`NOTIFICATION_WM_GO_BACK_REQUEST` exactly once, by hand, because that is what a test does. Two
+checks were added so it cannot come back — `the first back press acts` and `a back press
+duplicated by the platform is dropped, not a quit` — and `MIN_CHECKS` went 121 → 123. `_back()`
+had to start returning a bool for them: the only other way for a test to observe the second press
+is to let it call `get_tree().quit()` on the process the suite is running in. Two smaller things
+fell out of writing them: the second check has to wait out the dedupe window in **real** time
+(`Time.get_ticks_msec()` in a `process_frame` loop), because `SceneTree.create_timer()` did not
+advance the way the router's clock does under the headless suite; and the checks live in the
+gesture smoke, whose scene is freed afterwards, so no other test inherits the router's back
+timestamp.
+
+**`tests/run_headless.gd` exited 0 on a GDScript parse error.** Found doing Block D and fixed
+there. Godot exits 0 whatever happens to a `--script` file, so two parse errors during the day
+printed `SCRIPT ERROR: Parse Error`, ran zero checks and reported success. A script that never
+parsed cannot report its own failure, so the suite was split: `tests/run_headless.gd` is now a
+~35-line runner nobody has a reason to edit, and everything that changes daily moved to
+`tests/suite.gd`. The runner loads the suite, refuses to continue if it did not compile, runs it,
+and asserts the check count against a floor. **`load()` alone is not enough — a GDScript with a
+parse error still comes back as a non-null `Script`; `can_instantiate()` is what returns false.**
+Measured all three ways: a deliberate parse error → `PAWNCH_TEST FAIL reason=suite_did_not_load
+path=res://tests/suite.gd`, exit 2; a suite that loads but runs nothing → `PAWNCH_TEST FAIL
+reason=too_few_checks ran=0 min=123`, exit 1; the real suite → exit 0. The floor is the quietest
+of the three guards and the one that catches a runtime error or a stray early return dropping a
+block of checks without failing any of them.
+**The hole that is left and always will be: a parse error in `run_headless.gd` itself still exits
+0**, because there is nothing underneath it to notice. That is why it is small, boring, and says
+so at the top.
+
+**The skip test found three pieces of real debris, not hypothetical ones.** All three were live
+before the 191-offset sweep went green:
+
+- the charge and recoil **tweens** kept running after a reset and dragged the attacker off its
+  home square on the very next frame — they are now kept on the panel and killed by
+  `_reset_stage()`;
+- `close_now()` did not stop the `AnimationPlayer`, and `wipe_in` keys `Mask:size:x`, so a wipe
+  still in flight put the panel straight back on screen the frame after it closed;
+- `CharacterRig.reset_defeat()` only called `queue_free()` on the detached head, which leaves it
+  in the tree until the end of the frame — and that is exactly the frame a skip-then-capture
+  starts its next clash in. It is `remove_child()` then `queue_free()` now.
+
+**Changing `assets/board/pieces.png` needs `godot --headless --import` before anything sees it.**
+The first run after the atlas grew from 2025×850 to 2025×1020 drew no marks at all and reported no
+error: `load()` returned the stale imported texture out of `.godot/imported/`, three new regions
+inside the old page's bounds sampled transparent pixels, and the fourth was off the bottom edge
+and clipped away. Re-bake, then re-import, then look.
+
+**The 20-game desync smoke became 200 and the clash lookup table is empty on purpose.**
+`CLASH_BY_TYPE` has no entries; all six attacker types take `FALLBACK_CLASH`. Writing one in as
+"bespoke" would have been a decoration that made the table look finished. What has to be true
+today is that the lookup cannot return nothing, because that is what makes failure mode 3 — a
+capture resolving to silence — testable at all. There is a check that asserts every type takes the
+fallback today, and **it is designed to start failing on Day 7**, when the shared generic strike
+is authored and the table fills in. A test that fails on a scheduled day is a reminder that cannot
+be forgotten.
+
+### CI does not exist yet, and Day 7 owes it
+
+Saying it plainly, because the plan's done-criterion for today says "both tests pass in CI" and
+that is not what happened. **`.github/workflows/` is empty. There is no CI in this repo at all.**
+What today owes CI is that both tests are *CI-shaped*, and they are: one command
+(`godot --headless --script tests/run_headless.gd`), no device, no display, an exit code that
+distinguishes three kinds of failure, and a printed summary. Verified with no Android device
+attached, which was not a choice at the time and is the strongest form of that verification.
+The workflow lands on Day 7 alongside the six-attacker-types test that also needs it. **The cost
+of deferring is real: for two more days these tests run only when somebody remembers to run
+them**, and today they were run by hand eleven times.
+
+### A full game to checkmate, on the phone
+
+The Opera Game — Morphy against the Duke of Brunswick and Count Isouard, Paris 1858 — played move
+for move by tap and swipe on the device. 17 moves, 33 half-moves, **12 captures and therefore 12
+clashes**, ending:
+
+```
+PAWNCH_MOVE d1d8 turn=black status=checkmate fen=1n1Rkb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2K5 b k - 1 17
+PAWNCH_OUTCOME outcome=checkmate winner=white fen=1n1Rkb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2K5 b k - 1 17
+PAWNCH_BANNER show outcome=checkmate winner=white restart=(540.0, 2130.0)
+```
+
+Every one of the 33 half-moves was checked against the `PAWNCH_MOVE` line it produced before the
+next was sent; none was refused, none landed on the wrong square. **Castling works** — `e1c1` went
+through the same `legal_moves()`/`apply()` path as everything else and took the rook to d1. Nothing
+had exercised it before today. A 30 s `screenrecord` covers the last four half-moves and the
+banner.
+
+Sam Loyd's ten-move stalemate was played out too, for the stalemate banner, because there is no
+way to load a FEN on the device.
+
+### What felt wrong to play
+
+This is the list the task asked for, and it is worth more than the recording. None of these is a
+bug against a spec; several are decisions working exactly as written and still feeling bad in the
+hand.
+
+1. **The rotated board costs a beat on every single move.** ADR-0011 decision 1 turns the board a
+   quarter turn so the cells can be 135×170 and the figures can stand up. Playing a real game on
+   it, ranks run left to right and files run top to bottom, and I re-derived where every square
+   was, every time, for 33 half-moves. I know the reason and I would take the decision again; it
+   is still the biggest single source of friction in playing this.
+2. **Nothing on screen says whose turn it is.** The only way to find out is to tap something and
+   see whether it responds. Tapping a piece of the wrong colour does *nothing at all* — no mark, no
+   flash, no sound, no log line a player can see. For a six-year-old a silent refusal is the worst
+   available feedback, and this is the most common thing they will do.
+3. **A piece with no legal moves and a piece of the wrong colour look almost identical.** The
+   former gets the gold selection frame and no destinations, which is deliberate and correct; but
+   the difference between "selected, nowhere to go" and "ignored" is one thin frame that is easy
+   to miss on a moving board.
+4. **The clash is the same animation every time, and I noticed at capture three.** Not capture ten
+   — three. Twelve of them in the Opera Game and by the middle I was tapping to skip, and I am not
+   the target audience and I built it. The empty `CLASH_BY_TYPE` is the honest reason and Day 7 is
+   the fix, but the *feeling* arrives much earlier than the plan assumes, and it is the sprint's
+   central hypothesis that is on the hook for it.
+5. **Skipping is per-clash and there is no other speed control.** Once you have decided you would
+   rather play chess than watch the duel, you pay one tap per capture, forever, with no way to say
+   so once.
+6. **The knockout has a visible defect.** At the impact frame the skeleton's detached head reads
+   far larger than the head it replaced and is clipped by the panel's right edge, and the crest
+   duplicate separates from the skull entirely — it drifts left and hovers next to the valkyrie for
+   the rest of the clash, so she appears to be wearing two crests. It is in the first clash of a
+   fresh session, so it predates the skip work and belongs to `duel-panel-and-rig`, but it is the
+   most visible thing in the animation that is the whole product.
+7. **The board does not echo the clash.** The duel sells the capture, then the board comes back
+   and the piece is simply gone, with nothing marking where it was or where the attacker came from.
+   There is no last-move indication of any kind, for captures or for quiet moves.
+8. **The check mark and the capture ring are both red.** Their geometry differs — a wash from the
+   cell's edges against a ring round a figure — and that separation was deliberate and it does
+   work. But on a board that has a check up *and* a capture available, the colour says "danger"
+   twice and the eye has to do the work of telling which is which.
+9. **The losing king on the banner is a dark smudge.** Greyed to `LOSER_TINT` and rotated onto its
+   back, on a panel that is itself nearly black. The winner reads instantly; the loser reads as
+   "something is over there". And the gold crown is drawn on top of a king crest that is already a
+   crown, so the winner wears two.
+10. **Back with nothing selected quits the game, immediately and with no confirmation**, and there
+    is no save or resume. That is the platform default and it is what the spec asks for, but on a
+    phone handed to a child it means one stray press ends a game that was 30 moves old.
+11. **Castling is invisible.** The king moves two squares, the rook teleports to the other side of
+    it, no animation and no explanation. It is correct chess and it looks like a bug.
+12. **The debug Duel button is in the shipped build, bottom-right, and a child would find it in
+    about four seconds.** It is the right call for now — it is how the clash gets exercised without
+    a game — but it is not a thing to hand to a playtester.
+
+### Left open on purpose
+
+`knight-takes-pawn-clash` and `duel-panel-and-rig` stay unarchived. Both still carry debt: the
+deferred kill-checkpoint recordings and verdict (Day 10, with no retry budget behind it), the
+deferred `--cold` frame-timing ritual (Day 9), the duel panel's wipe cost, and now the detached
+head defect in item 6 above.
+
+`tests/render_board_states.gd` was written while the phone was gone, to render the marks, the
+drag, the check mark and both banners on the host. It outlived its excuse — it is nine frames of
+every board state from one command, which is faster than any device loop — and both READMEs now
+name it next to `tests/render_board_pieces.gd`, since it carries the same real-window /
+`--rendering-driver opengl3` constraint.
+
 ## Ideas for later
 
 - **Regenerate the head per piece type, instead of one shared head wearing a swapped crest.** This
@@ -1792,6 +2083,22 @@ placeholder — so the wipe chase stays with `duel-panel-and-rig` where it belon
   share the batch the figures already share and cost **zero** extra draw calls. It is
   affordable either way against ~60 — this is a reason to prefer one implementation over another
   on Day 5, not work for today.
+- **Give the panel its draw calls back when it closes.** Measured on Day 5 and reproduced
+  deliberately: the board costs `draw_calls_max=4` until the first clash of the session and **29
+  for the rest of it, with the panel closed** — fresh launch and 12 s of nothing gives 4, one
+  capture and 12 s of nothing gives 29, and it never comes back down. `Mask:size:x` at zero clips
+  the rasterisation but the panel's ~25 sprites are still submitted every frame. Day 4 read 29 as
+  the clash's cost; about half of it is the clash and half is the panel not giving it back. 29 is
+  well inside the ~60 budget so nothing is broken and this is not urgent, but the idle board is
+  paying seven times what it needs to and the fix is probably one `visible = false` in
+  `close_now()` paired with a `visible = true` in `open()`. It wants measuring rather than
+  assuming, because `_warm()` is the reason the panel is drawable at all before the first clash.
+- **Say whose turn it is, and answer a tap on the wrong colour.** Items 2 and 3 of Day 5's
+  "what felt wrong to play": there is no turn indicator, and tapping a piece of the side not to
+  move produces nothing at all — no mark, no flash, no sound. The cheapest honest version is
+  probably the refused piece's own cell flashing once, reusing a mark that already exists in the
+  atlas, plus something in the free band that says whose move it is without words. Not today: it
+  is new behaviour and it needs a change of its own.
 - **The orange "this piece is defended" highlight**, if difficulty levels ever exist. It does not
   need a sixth adapter function: swap the enemy piece in the FEN for one of ours, hand the move to
   the opponent, and ask `legal_moves` who takes it back. Pins fall out correctly for free. ~30 lines

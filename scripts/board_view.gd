@@ -13,12 +13,13 @@ class_name BoardView
 # is ever mirrored either: a mirror reflects the position — king and queen swap
 # files — which reads as a broken board. The rules know none of it; a1 is a1.
 #
-# Everything is drawn by this one CanvasItem, in one pass, in this order:
-# squares, then figures row by row from the top. That order is what makes a
-# figure overlap the one in the cell above it without a y-sort, and it keeps the
-# whole board to two batches — the squares share the white texture and every
-# figure comes out of the same atlas page, so there is exactly one texture switch
-# in the frame.
+# Everything is drawn by this one CanvasItem, in one pass: squares, the marks
+# that belong under a figure, then figures row by row from the top, then the
+# marks that belong over one. Row by row from the top is what makes a figure
+# overlap the one in the cell above it without a y-sort, and the whole board
+# stays two batches — the squares share the white texture and every mark comes
+# off the same atlas page as the figures, so there is exactly one texture switch
+# in the frame however the two are interleaved.
 #
 # Piece type is carried by the head crest and nothing else (ADR-0011 decision 4,
 # reversed 2026-08-17). A tile crest glyph shipped for one afternoon and was
@@ -32,12 +33,16 @@ const REGION_MAP := "res://assets/board/pieces.json"
 const LIGHT_SQUARE := Color(0.93, 0.87, 0.74)
 const DARK_SQUARE := Color(0.49, 0.35, 0.24)
 
-# Minimal marks, deliberately: the styled legal-move glow and the red capture
-# ring are Day 5's. An outline sits on the cell's edges, which is the one place
-# the figure is not, so the two do not fight.
-const SELECTED_MARK := Color(1.0, 0.83, 0.30, 0.95)
-const DESTINATION_MARK := Color(1.0, 0.83, 0.30, 0.50)
-const MARK_WIDTH := 6.0
+# Four marks, all quads out of the same atlas page the figures come from, so
+# they cost no draw call at all: Day 4 drew them as `draw_rect` outlines and
+# measured +3..6, because an unbatched primitive breaks the run of textured
+# quads either side of it. Geometry tells them apart before colour does — a
+# blob in the middle, a ring round the figure, a wash on the cell's edges, a
+# frame on them (tools/bake_board_atlas.py).
+const MARK_MOVE := "move"
+const MARK_CAPTURE := "capture"
+const MARK_CHECK := "check"
+const MARK_SELECTED := "selected"
 
 const FILES := ["a", "b", "c", "d", "e", "f", "g", "h"]
 const FEN_TYPES := {
@@ -64,9 +69,14 @@ const START_FEN := "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 var _pieces := {}  # "e1" -> {"type": "king", "color": "white"}
 var _page: Texture2D
 var _figure_regions := {}  # "white_king" -> [Rect2 x6]
+var _mark_regions := {}  # "move" -> Rect2
 var _breath_tick := 0
 var _selected := ""
 var _destinations: Array = []
+var _captures: Array = []
+var _check := ""
+var _drag_square := ""
+var _drag_point := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -184,10 +194,44 @@ func square_at(point: Vector2) -> String:
 	return "%s%d" % [FILES[row], col + 1]
 
 
-func set_marks(selected: String, destinations: Array) -> void:
+func set_marks(selected: String, destinations: Array, captures: Array = []) -> void:
 	_selected = selected
 	_destinations = destinations
+	_captures = captures
 	queue_redraw()
+
+
+# The cell of the king that is currently attacked, or "" for no check. Pushed
+# from the session, which asks the rules — the board never works it out.
+func set_check(square: String) -> void:
+	_check = square
+	queue_redraw()
+
+
+# The piece under the finger during a drag. `point` is in this control's own
+# space, and the figure is drawn centred on it instead of on `square`, so the
+# origin cell reads as empty for as long as the drag lasts.
+func set_drag(square: String, point: Vector2) -> void:
+	_drag_square = square
+	_drag_point = point
+	queue_redraw()
+
+
+func clear_drag() -> void:
+	_drag_square = ""
+	queue_redraw()
+
+
+func dragging() -> String:
+	return _drag_square
+
+
+func atlas_page() -> Texture2D:
+	return _page
+
+
+func figure_region(color: String, type: String, frame := 0) -> Rect2:
+	return _figure_regions["%s_%s" % [color, type]][frame]
 
 
 func _draw() -> void:
@@ -198,33 +242,55 @@ func _draw() -> void:
 			draw_rect(Rect2(origin + Vector2(col * CELL.x, row * CELL.y), CELL),
 				LIGHT_SQUARE if square_is_light(square) else DARK_SQUARE)
 
-	# Straight after the squares, so the marks share their batch and cost no
-	# extra draw call.
-	for square in _destinations:
-		_draw_mark(square, DESTINATION_MARK, MARK_WIDTH * 0.5)
-	if _selected != "":
-		_draw_mark(_selected, SELECTED_MARK, MARK_WIDTH)
-
 	if _page == null:
 		return
+
+	# Marks and figures all come off the one page, so the whole board is the 64
+	# square fills plus a single unbroken run of textured quads however they are
+	# interleaved. Which side of the figures a mark goes is therefore purely a
+	# legibility decision: the check wash and the move glow read fine underneath,
+	# the ring and the selection frame do not — a figure fills 123 of the cell's
+	# 135 px and buries anything drawn under it.
+	if _check != "":
+		_draw_mark(_check, MARK_CHECK)
+	for square in _destinations:
+		if not _captures.has(square):
+			_draw_mark(square, MARK_MOVE)
 
 	# Top row first: a figure overhangs upward, so the lower cell must draw last.
 	var by_row := {}
 	for square in _pieces:
-		by_row.get_or_add(screen_cell(square).y, []).append(square)
+		if square != _drag_square:
+			by_row.get_or_add(screen_cell(square).y, []).append(square)
 	for row in file_count:
 		for square in by_row.get(row, []):
-			var piece: Dictionary = _pieces[square]
-			var key: String = "%s_%s" % [piece["color"], piece["type"]]
-			draw_texture_rect_region(_page, cell_rect(square),
-				_figure_regions[key][_breath_frame(square)])
+			_draw_figure(_pieces[square], cell_rect(square), _breath_frame(square))
+
+	for square in _captures:
+		_draw_mark(square, MARK_CAPTURE)
+	if _selected != "":
+		_draw_mark(_selected, MARK_SELECTED)
+
+	# Last, and over everything: the dragged piece belongs under the finger, not
+	# on the square it left.
+	if _drag_square != "" and _pieces.has(_drag_square):
+		_draw_figure(_pieces[_drag_square],
+			Rect2(_drag_point - CELL * Vector2(0.5, 0.75), CELL),
+			_breath_frame(_drag_square))
+
+
+func _draw_figure(piece: Dictionary, rect: Rect2, frame: int) -> void:
+	draw_texture_rect_region(_page, rect,
+		_figure_regions["%s_%s" % [piece["color"], piece["type"]]][frame])
+
+
+func _draw_mark(square: String, mark: String) -> void:
+	draw_texture_rect_region(_page, cell_rect(square), _mark_regions[mark])
 
 
 # Stable per square rather than random per launch, and a bijection over the six
 # frames down a screen column, so a file of eight pawns shows six different
 # poses instead of two.
-func _draw_mark(square: String, color: Color, width: float) -> void:
-	draw_rect(cell_rect(square).grow(-width * 0.5), color, false, width)
 
 
 func _breath_frame(square: String) -> int:
@@ -242,6 +308,9 @@ func _load_atlas() -> void:
 		for b in data["figures"][key]:
 			boxes.append(Rect2(b[0], b[1], b[2], b[3]))
 		_figure_regions[key] = boxes
+	for key in data["marks"]:
+		var b: Array = data["marks"][key]
+		_mark_regions[key] = Rect2(b[0], b[1], b[2], b[3])
 
 
 # The rotation is the one thing on this board that is easy to get backwards, and

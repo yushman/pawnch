@@ -863,3 +863,28 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > and the end of the file was inside `## Ideas for later` — the whole day's log was filed
       > under a heading meaning "not doing this". Moved into a dated
       > `## 2026-08-17 — Day 2 (continued)` entry with `## Ideas for later` returned to the bottom.
+
+---
+
+## Open debt found later, from outside this change
+
+- [ ] **The detached head reads wrong, and the crest orphans itself. Found 2026-08-18 (Day 5),
+      deferred to Day 8 by decision.** Pulled frames of the very first duel of a fresh session
+      show three things at once: the detached skull reads noticeably **larger** than the head it
+      replaced, it is **clipped by the panel's right edge** on the way out, and the duplicated
+      crest **separates from the skull** and hangs beside the valkyrie for the rest of the duel —
+      so she appears to be wearing two crests, one of them the defender's.
+
+      It predates all of Day 5's work: the duplicates are spawned in `detach_head()` and tweened
+      independently while `Dying` keeps driving the hidden originals underneath, which is this
+      change's code, not the clash's and not the skip's. The clipping is the same `Mask` /
+      `clip_contents` boundary already suspected of the wipe cost — a third symptom of one
+      boundary, which is worth knowing before either is chased.
+
+      This matters more than its size suggests: it is a defect in the **one asset the whole
+      sprint exists to produce**, visible in every capture, and the Day-10 kill-checkpoint
+      recording will be pulled from a build containing it.
+
+      *Verify:* on device, a `screenrecord` of one capture split with `ffmpeg -vf fps=30`; across
+      the flight the skull is the same apparent size as the head it replaced, the crest stays
+      attached to it, and neither leaves frame through a clipped edge before the flight is over.

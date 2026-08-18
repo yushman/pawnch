@@ -114,15 +114,18 @@ func _spawn_duplicate(source: Sprite2D) -> Sprite2D:
 func reset_defeat() -> void:
 	if _detach_tween and _detach_tween.is_valid():
 		_detach_tween.kill()
-	if _detached_head:
-		_detached_head.queue_free()
-		_detached_head = null
-	if _detached_face:
-		_detached_face.queue_free()
-		_detached_face = null
-	if _detached_crest:
-		_detached_crest.queue_free()
-		_detached_crest = null
+	for dup in [_detached_head, _detached_face, _detached_crest]:
+		if dup == null:
+			continue
+		# Removed before it is freed, not just queued: queue_free() leaves the
+		# duplicate in the tree until the end of the frame, and a clash that
+		# starts in that same frame -- which is what a skip followed by another
+		# capture does -- would draw the previous clash's flying head.
+		remove_child(dup)
+		dup.queue_free()
+	_detached_head = null
+	_detached_face = null
+	_detached_crest = null
 	_head.visible = true
 	_face.visible = true
 	_crest.visible = show_crest

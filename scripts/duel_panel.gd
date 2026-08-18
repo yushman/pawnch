@@ -30,6 +30,23 @@ const RECOIL_CUE_T := 0.85
 const DYING_T := 0.95
 const EXIT_T := 1.60
 const WIPE_OUT_DURATION := 0.3
+## Tap to the board coming back: the whole <=2.0s budget, and the span a skip
+## can land anywhere inside.
+const CLASH_LENGTH := EXIT_T + WIPE_OUT_DURATION
+
+# The clash lookup (clash-sequencing spec: "The lookup MUST NOT be able to
+# return nothing"). It is what makes "no capture is ever silent" testable --
+# failure mode 3 in system-analysis.md is a capture that resolves to nothing and
+# removes a piece with no animation and no error.
+#
+# CLASH_BY_TYPE is empty on purpose: no piece type has a clash of its own yet, so
+# all six resolve to FALLBACK_CLASH, which is the one authored strike. Day 7
+# authors the shared generic strike and fills the table in; the guarantee has to
+# hold before then, not after.
+const PIECE_TYPES := ["pawn", "knight", "bishop", "rook", "queen", "king"]
+const CLASH_BY_TYPE := {}
+const FALLBACK_CLASH := "strike"
+const CLASH_LENGTHS := {"strike": CLASH_LENGTH}
 
 # Staging, as offsets rather than absolute x, so one set of numbers serves both
 # attack directions: the attacker winds up WINDUP_BACK away from its own home
@@ -84,7 +101,13 @@ var _board_scale := Vector2.ONE
 var _home_x: Array[float] = []
 var _is_open := false
 var _is_clashing := false
+# Bumped on every start and every finish. A beat captures it and stops the
+# moment it no longer matches, which is how a clash finished from the outside
+# stops mid-await instead of running its remaining beats over a reset stage.
+var _clash_seq := 0
 var _board_tween: Tween
+var _root_tween: Tween
+var _recoil_tween: Tween
 var _clash_start_usec := 0
 var _awaiting_first_frame := false
 var _cue_log: Array[String] = []
@@ -130,14 +153,29 @@ func play() -> void:
 	play_capture("white", "knight", "pawn")
 
 
+# Which clash an attacker type gets, and how long it runs. Never returns
+# nothing: an unauthored or unknown type falls back to the one clash that
+# exists, so a capture can never resolve to silence.
+static func clash_for(attacker_type: String) -> Dictionary:
+	var authored: bool = CLASH_BY_TYPE.has(attacker_type)
+	var clash_name: String = CLASH_BY_TYPE.get(attacker_type, FALLBACK_CLASH)
+	return {
+		"name": clash_name,
+		"duration": CLASH_LENGTHS[clash_name],
+		"fallback": not authored,
+	}
+
+
 # The one bespoke clash, for whichever colour is attacking. Re-entrant calls
-# while a clash is already running are ignored rather than queued or interrupted
-# -- skip/finish_now() is Day 5's problem (mvp-plan), not this change's.
+# while a clash is already running are refused rather than queued or
+# interrupted; ending one early is finish_now()'s job, not this function's.
 func play_capture(attacker_color: String, attacker_type: String, defender_type: String,
 		tap_usec := 0) -> void:
 	if _is_clashing:
 		return
 	_is_clashing = true
+	_clash_seq += 1
+	var seq := _clash_seq
 	_reset_stage()
 	_cue_log.clear()
 	# Cue zero is the tap that committed the capture, not the panel opening, so
@@ -153,10 +191,21 @@ func play_capture(attacker_color: String, attacker_type: String, defender_type: 
 	# thing naming the pieces that are actually fighting.
 	attacker.set_piece_type(attacker_type)
 	defender.set_piece_type(defender_type)
-	_cue_log.append("PAWNCH_CUE clash attacker=%s_%s defender=%s_%s" % [
+	var chosen := clash_for(attacker_type)
+	_cue_log.append("PAWNCH_CUE clash attacker=%s_%s defender=%s_%s clash=%s fallback=%s" % [
 		attacker_color, attacker_type,
-		"black" if attacking_white else "white", defender_type])
+		"black" if attacking_white else "white", defender_type,
+		chosen["name"], chosen["fallback"]])
 
+	await _run_beats(seq, attacker, defender, attacking_white)
+	_finish("natural", seq)
+
+
+# The five beats. Every wait can come back false -- the clash was finished from
+# the outside while it was in flight -- and every one of them then returns
+# without touching the stage, because whoever finished it has already reset it.
+func _run_beats(seq: int, attacker: CharacterRig, defender: CharacterRig,
+		attacking_white: bool) -> void:
 	var attacker_home := _home_x[0] if attacking_white else _home_x[1]
 	var defender_home := _home_x[1] if attacking_white else _home_x[0]
 	var toward := signf(defender_home - attacker_home)
@@ -167,20 +216,22 @@ func play_capture(attacker_color: String, attacker_type: String, defender_type: 
 	open()  # wipe_in begins; wind-up starts on the same frame (tap -> < 200ms)
 	_arm_first_frame_cue()
 
-	var root_tween := create_tween()
-	root_tween.tween_property(attacker, "position:x", windup_x, WINDUP_END) \
+	_root_tween = create_tween()
+	_root_tween.tween_property(attacker, "position:x", windup_x, WINDUP_END) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	root_tween.tween_property(attacker, "position:x", charge_x, IMPACT_T - WINDUP_END) \
+	_root_tween.tween_property(attacker, "position:x", charge_x, IMPACT_T - WINDUP_END) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 
-	await _wait_until(WINDUP_END)
+	if not await _wait_until(seq, WINDUP_END):
+		return
 	# Each rig's own Slashing already points at the other side, and the
 	# skeleton's does so through duel_panel.tscn's static per-colour mirror --
 	# measured, not assumed: see ADR-0011 decision 5.
 	attacker.play_state("Slashing")
 	_juice.play_swing()
 
-	await _wait_until(IMPACT_T)
+	if not await _wait_until(seq, IMPACT_T):
+		return
 	_fire_cue("impact")
 	defender.play_state("Hurt")
 	# The defeat is asymmetric and it is a property of the character, not of the
@@ -189,39 +240,76 @@ func play_capture(attacker_color: String, attacker_type: String, defender_type: 
 	if defender == _black:
 		defender.detach_head()
 	var dispatch: Dictionary = await _juice.fire_impact(impact_point)
+	if seq != _clash_seq:
+		return
 	_log_dispatch(dispatch)
 
 	attacker.play_state("Idle Blinking")
-	var recoil_tween := create_tween()
-	recoil_tween.tween_property(attacker, "position:x", attacker_home, EXIT_T - IMPACT_T - JuiceBus.HITSTOP_SEC) \
+	_recoil_tween = create_tween()
+	_recoil_tween.tween_property(attacker, "position:x", attacker_home,
+			EXIT_T - IMPACT_T - JuiceBus.HITSTOP_SEC) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
-	await _wait_until(RECOIL_CUE_T)
+	if not await _wait_until(seq, RECOIL_CUE_T):
+		return
 	_fire_cue("recoil")
 
-	await _wait_until(DYING_T)
+	if not await _wait_until(seq, DYING_T):
+		return
 	defender.play_state("Dying")
 
-	await _wait_until(EXIT_T)
+	if not await _wait_until(seq, EXIT_T):
+		return
 	_fire_cue("exit")
 	close()
 
-	await _wait_until(EXIT_T + WIPE_OUT_DURATION)
+	await _wait_until(seq, EXIT_T + WIPE_OUT_DURATION)
+
+
+# The one and only way a clash ends. The natural end of the beats, a tap on the
+# screen, the back button and coming back from the background all arrive here,
+# because two ways to end a clash is two ways for it to end slightly wrong and
+# the skip test only ever proves the path it fires.
+#
+# Idempotent: a second call finds no clash running and does nothing.
+func finish_now(path := "skip") -> void:
+	_finish(path, _clash_seq)
+
+
+func _finish(path: String, seq: int) -> void:
+	if not _is_clashing or seq != _clash_seq:
+		return
+	# Invalidates whatever beat is still in flight: it resumes on the next
+	# frame, sees a sequence that is no longer its own, and returns.
+	_clash_seq += 1
+	_is_clashing = false
+	_awaiting_first_frame = false
+	if RenderingServer.frame_post_draw.is_connected(_check_first_frame):
+		RenderingServer.frame_post_draw.disconnect(_check_first_frame)
 	if frame_probe and frame_probe.has_method("mark_region_end"):
 		frame_probe.mark_region_end("clash")
-	_reset_stage()
-	# Cue zero was the tap, so this one is the whole ≤2.0s budget: tap to the
+	close_now()
+	# Cue zero was the tap, so this one is the whole <=2.0s budget: tap to the
 	# board coming back and input returning.
 	_fire_cue("done")
+	_cue_log.append("PAWNCH_CLASH_END path=%s" % path)
 	_flush_cue_log()
-	_is_clashing = false
 
 
-func _wait_until(t_sec: float) -> void:
-	var elapsed := (Time.get_ticks_usec() - _clash_start_usec) / 1_000_000.0
-	var remaining := t_sec - elapsed
-	if remaining > 0.0:
-		await get_tree().create_timer(remaining).timeout
+func is_clashing() -> bool:
+	return _is_clashing
+
+
+# Returns false the moment this clash stops being the current one, which is what
+# lets a beat awaiting the next cue abandon the rest of the timeline. Polled per
+# frame rather than slept on a Timer for exactly that reason -- a timer cannot be
+# cut short, so a skip would have waited for the beat it landed in to elapse.
+func _wait_until(seq: int, t_sec: float) -> bool:
+	while seq == _clash_seq:
+		if (Time.get_ticks_usec() - _clash_start_usec) / 1_000_000.0 >= t_sec:
+			return true
+		await get_tree().process_frame
+	return false
 
 
 # "First clash frame" is the first frame that actually presented any of the
@@ -279,6 +367,9 @@ func close() -> void:
 
 func close_now() -> void:
 	_is_open = false
+	# Stopped, not just overwritten: wipe_in keys Mask:size:x, so a wipe still
+	# running would put the panel straight back on screen the next frame.
+	_anim.stop()
 	_mask.size.x = 0
 	_board_dim.modulate.a = 0
 	if _board_tween and _board_tween.is_valid():
@@ -289,12 +380,21 @@ func close_now() -> void:
 
 
 # Idempotent: puts everything the clash moves, detaches or hides back to its
-# authored rest state. Called on entry to play() (defensive, in case a
-# previous clash left something behind), on close_now(), and after every
-# clash finishes -- so back-to-back clashes start from the same place every
-# time.
+# authored rest state. Called on entry to play_capture() (defensive, in case a
+# previous clash left something behind) and from close_now(), which every
+# ending path reaches through _finish() -- so back-to-back clashes start from
+# the same place every time, and a clash cut short at any instant ends where a
+# clash allowed to run in full does.
 func _reset_stage() -> void:
 	Engine.time_scale = 1.0
+	# The charge and the recoil are tweens on the attacker's position: left
+	# alive they would drag it off its home square again on the frame after the
+	# reset, which is exactly the debris a skip must not leave.
+	for t in [_root_tween, _recoil_tween]:
+		if t and t.is_valid():
+			t.kill()
+	if _juice:
+		_juice.cancel()
 	if _stage:
 		_stage.position = Vector2.ZERO
 	if _burst:
