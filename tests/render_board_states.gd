@@ -15,6 +15,10 @@ extends SceneTree
 # renderer the game ships with. The scene is mounted in a 1080x2400 SubViewport
 # so the framing does not depend on what size window the desktop allows.
 
+# White to move, with a queen the opponent's knight can take and a bishop that
+# can take the knight back afterwards.
+const LAST_MOVE_FEN := "4k3/8/8/4n3/8/3Q1P2/8/5BK1 w - - 0 1"
+
 var out_dir := "/tmp/pawnch-shots"
 var viewport: SubViewport
 
@@ -34,6 +38,11 @@ func _initialize() -> void:
 	await process_frame
 	var session: GameSession = main.get_node("Session")
 	var board: BoardView = main.get_node("Board")
+	# Both colours are played by hand below, so the opponent is detached for all
+	# of it and attached again for the last two shots, which are the two it is
+	# the subject of.
+	var bot: Node = main.get_node("GreedyBot")
+	session.bot = null
 
 	await _shot("01-start")
 
@@ -71,7 +80,32 @@ func _initialize() -> void:
 
 	session.restart()
 	await _shot("08-restarted")
+
+	# The opponent's reply, marked. White plays a quiet f3f4 into a hanging
+	# queen, the opponent takes it, and the pair of squares its knight joined is
+	# still on the board once the clash is over.
+	session.bot = bot
+	session.load_fen(LAST_MOVE_FEN)
+	session.play_move("f3f4")
+	await _unfrozen(session)
+	await _shot("09-last-move")
+
+	# And the shot the third mark has to survive: the bishop on f1 may take the
+	# knight that just landed on d3, so that cell carries a capture ring and a
+	# last-move bracket at once, while e5 carries the other half of the pair and
+	# three empty squares glow. Four marks, one frame, nothing ambiguous.
+	session.tap("f1")
+	await _shot("10-three-marks")
 	quit(0)
+
+
+# The opponent's turn owns the freeze from the player's commit until its own
+# clash has finished and the board has caught up.
+func _unfrozen(session: GameSession, max_frames := 900) -> void:
+	var frames := 0
+	while (session.is_frozen() or session.turn() != "white") and frames < max_frames:
+		await process_frame
+		frames += 1
 
 
 func _shot(name: String) -> void:

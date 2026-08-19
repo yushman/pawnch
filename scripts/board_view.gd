@@ -33,16 +33,17 @@ const REGION_MAP := "res://assets/board/pieces.json"
 const LIGHT_SQUARE := Color(0.93, 0.87, 0.74)
 const DARK_SQUARE := Color(0.49, 0.35, 0.24)
 
-# Four marks, all quads out of the same atlas page the figures come from, so
+# Five marks, all quads out of the same atlas page the figures come from, so
 # they cost no draw call at all: Day 4 drew them as `draw_rect` outlines and
 # measured +3..6, because an unbatched primitive breaks the run of textured
 # quads either side of it. Geometry tells them apart before colour does — a
 # blob in the middle, a ring round the figure, a wash on the cell's edges, a
-# frame on them (tools/bake_board_atlas.py).
+# frame on them, brackets on their corners (tools/bake_board_atlas.py).
 const MARK_MOVE := "move"
 const MARK_CAPTURE := "capture"
 const MARK_CHECK := "check"
 const MARK_SELECTED := "selected"
+const MARK_LAST_MOVE := "last_move"
 
 const FILES := ["a", "b", "c", "d", "e", "f", "g", "h"]
 const FEN_TYPES := {
@@ -75,6 +76,7 @@ var _selected := ""
 var _destinations: Array = []
 var _captures: Array = []
 var _check := ""
+var _last_move: Array = []
 var _drag_square := ""
 var _drag_point := Vector2.ZERO
 
@@ -194,11 +196,24 @@ func square_at(point: Vector2) -> String:
 	return "%s%d" % [FILES[row], col + 1]
 
 
-func set_marks(selected: String, destinations: Array, captures: Array = []) -> void:
+# `last_move` is the pair of squares the opponent's move joined, or [] for none.
+# Told, never worked out: the board does not diff one position against the next
+# to find what moved (ADR-0004), for the same reason it is not asked what is
+# legal.
+func set_marks(selected: String, destinations: Array, captures: Array = [],
+		last_move: Array = []) -> void:
 	_selected = selected
 	_destinations = destinations
 	_captures = captures
+	_last_move = last_move
 	queue_redraw()
+
+
+# The pair the board is currently marking. Nothing in the game reads it — it is
+# how the checks see that the session pushed the pair rather than the board
+# inventing it.
+func last_move() -> Array:
+	return _last_move.duplicate()
 
 
 # The cell of the king that is currently attacked, or "" for no check. Pushed
@@ -266,6 +281,12 @@ func _draw() -> void:
 		for square in by_row.get(row, []):
 			_draw_figure(_pieces[square], cell_rect(square), _breath_frame(square))
 
+	# Over the figures, because half of this pair is a cell with one standing in
+	# it and the corners are the only part of a cell a figure leaves clear —
+	# and under the ring and the frame, so that the marks the player can act on
+	# stay the loud ones on any cell carrying two.
+	for square in _last_move:
+		_draw_mark(square, MARK_LAST_MOVE)
 	for square in _captures:
 		_draw_mark(square, MARK_CAPTURE)
 	if _selected != "":

@@ -5,11 +5,12 @@ impact, screen shake, VFX, sound and haptics — instead of a piece silently van
 
 [Русская версия](README.ru.md)
 
-> **Status: in development, day 5 of 12.** There is no installable build yet, but the game
+> **Status: in development, day 6 of 12.** There is no installable build yet, but the game
 > runs on the target phone: a full game can be played to checkmate, every capture cuts to the
-> duel, and the numbers below are measured on that device rather than estimated. What is
-> missing is the opponent, five of the six piece types' clashes, and the sound and polish
-> pass. The one animation that exists has not yet been judged against the app it has to beat.
+> duel, and the numbers below are measured on that device rather than estimated. There is now
+> an opponent to play against, and two of the six piece types — pawn and knight — have a clash
+> of their own; the other four share one. What is missing is those four clashes and the sound
+> and polish pass. Neither animation has yet been judged against the app it has to beat.
 
 ## What it is
 
@@ -45,12 +46,16 @@ narrowed, is in [docs/research.md](docs/research.md).
 Move a piece by **tapping it and then its destination**, or by **dragging it there** — both go
 through the same rules, because a six-year-old and a ten-year-old do not reach for the same
 gesture. A dragged piece follows the finger and goes back where it started if it is released
-somewhere illegal.
+somewhere illegal. **Tapping a piece you have already picked up puts it back down.**
 
-The board marks four things, all as quads out of the same atlas the pieces come from: the
+The board marks five things, all as quads out of the same atlas the pieces come from: the
 **selected** piece, every square it may **move** to, every square holding a piece it may
-**capture** (a red ring, including en passant, whose destination square is empty), and the cell of
-a **king in check**.
+**capture** (a red ring, including en passant, whose destination square is empty), the cell of a
+**king in check**, and the two squares of the **opponent's last move** — violet corner brackets on
+where it came from and where it now stands, which stay up while you think and clear when you move.
+That last one exists because a reply that lands in under a second is a piece that was somewhere
+and is now somewhere else, and after a capture the duel has taken your eyes off the board for the
+whole of the move it is meant to explain.
 
 A clash can be **skipped by tapping anywhere** while it plays. The Android **back button** does
 the least destructive thing available: it finishes a clash if one is playing, else clears the
@@ -60,7 +65,22 @@ When a game ends, a banner says which ending it was and who won without requirin
 the winner's king standing crowned, the loser's on its back and greyed, or two equal kings and an
 equals sign for a draw — with a restart arrow underneath. The board stays visible under both.
 
-Both colours are played on the same device; the bot lands later.
+You play white; **the opponent plays black** and answers within a second, after a short pause so
+its reply reads as a move rather than as the board twitching twice. It is **deliberately a bad
+chess player**: it takes the most valuable piece it can reach and looks no further, so it hangs
+pieces constantly. That is the point rather than a defect — a hung piece is an invitation to
+capture, and a capture is the thing this whole app exists to show
+([ADR-0005](docs/adr/0005-capture-greedy-bot-not-a-real-engine.md)).
+
+A readout above the board says **whose turn it is**, without words: your side's king and a chevron
+pointing down at the board on your move, three stepping dots while the opponent decides. With an
+opponent that thinks and then moves on its own, "is it my turn" and "is it stuck" are questions a
+six-year-old cannot answer from a board that looks the same either way. Touches are ignored for
+the whole of the opponent's turn and come back on their own.
+
+Pawn and knight captures each play a clash of their own — the knight charges across the ground,
+the pawn crouches and leaps on its victim from above. The other four piece types share the
+knight's until their own are authored, so **no capture is ever silent**.
 
 ## Deliberately not in this project
 
@@ -82,21 +102,33 @@ The animation is the product, so the frame budget is the spec, not a nice-to-hav
 
 | | Target | Measured |
 |---|---|---|
-| Sustained fps through the clash | ≥50 | 59.6 |
-| Capture tap → first clash frame | <200 ms | 30–33 ms |
-| Total clash duration | ≤2.0 s | 1.90–1.92 s |
+| Sustained fps through the clash | ≥50 | 59.2–59.6 |
+| Capture tap → first clash frame | <200 ms | 4–32 ms |
+| Total clash duration | ≤2.0 s | 1.82–1.92 s |
+| Opponent's reply | <1 s | 39–44 ms + a deliberate 350 ms pause |
 | Cold start → interactive board | ≤3.0 s | 2.43–2.56 s |
-| Draw calls, board + clash on screen | ~60 | 29 |
-| Draw calls, board with selection and destination marks | ~60 | 4 |
+| Draw calls, board + clash on screen | ~60 | 35 |
+| Draw calls, board with marks and the turn indicator | ~60 | 8–10 |
 
-Measured 2026-08-18 over four captures and three cold starts. Frame times come from inside the
-engine, never from `dumpsys gfxinfo`
-([ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md)); the clash windows report
-0–1 dropped vsyncs each, against an idle baseline taken in the same session that drops 1 per three
-five-second windows on its own, so no dropped vsync is attributable to the clash. The cold-start
-figure is launch to the first frame that draws the board *and* accepts a tap (`PAWNCH_READY` in
-logcat); the activity's own first frame comes 917–995 ms after launch. The board's marks cost
-nothing: they are textured quads from the piece atlas and batch with the figures.
+Measured 2026-08-19 over four captures, an idle baseline and a cold start, on top of the
+2026-08-18 pass that produced the cold-start figure. Frame times come from inside the engine,
+never from `dumpsys gfxinfo`
+([ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md)).
+
+**One number here misses its budget, and it is stated rather than smoothed over.** Scoped to the
+clash itself rather than to a five-second reporting window, every clash drops **one** vsync — 1 in
+108 frames, against an idle baseline in the same session that drops 1 in ~892 — so a dropped
+vsync *is* attributable to the clash, and the earlier reading that said otherwise was measuring
+too coarse a window. The stall is 29.5 ms for the knight's charge and 53–58 ms for the pawn's
+pounce, against a 20 ms budget. It reproduces warm as well as cold, so it is not a first-use cost.
+Neither is visible as stutter at 59+ fps, and fixing it is scheduled work rather than a surprise.
+
+The cold-start figure is launch to the first frame that draws the board *and* accepts a tap
+(`PAWNCH_READY` in logcat); the activity's own first frame comes 917–995 ms after launch. The
+board's marks cost nothing — they are textured quads from the piece atlas and batch with the
+figures — but the turn indicator draws its own panel and figure, which is the 4–6 draw calls
+between this table and the last one, and the duel panel still does not give its ~25 back when it
+closes.
 
 Measured on: **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`), MediaTek Helio G99, Mali-G57 MC2,
 1080x2400, Android 16 (SDK 36), arm64-v8a. Its GPU is a step above the Snapdragon 680 /

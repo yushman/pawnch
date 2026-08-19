@@ -43,20 +43,24 @@ COLORS = {"white": "valkyrie", "black": "skeleton_warrior"}
 # are quads out of this page precisely so they batch with the figures, where
 # Day 4's draw_rect outlines cost +3..6 draw calls.
 FIGURE_REGIONS = len(TYPES) * len(COLORS) * FRAMES
-MARKS = ["move", "capture", "check", "selected"]
+MARKS = ["move", "capture", "check", "selected", "last_move"]
 REGIONS = FIGURE_REGIONS + len(MARKS)
 
 # Drawn at 4x and downscaled, because every mark has a curved edge and none of
 # them may show a stair-step next to the figures' own antialiased silhouettes.
 SS = 4
 
-# Four marks, told apart by geometry first and colour second, so that a
+# Five marks, told apart by geometry first and colour second, so that a
 # screenshot settles which is which without a colour-picker: a centred blob, an
-# inscribed ring, a wash hugging the cell's edges, and a frame on them.
+# inscribed ring, a wash hugging the cell's edges, a frame on them, and brackets
+# on the four corners.
 MOVE_COLOR = (56, 189, 248, 255)
 CAPTURE_COLOR = (232, 52, 40, 255)
 CHECK_COLOR = (255, 72, 40, 255)
 SELECTED_COLOR = (245, 158, 11, 255)
+# Deliberately nowhere near the other four, which are all warm or cyan: this is
+# the only mark that reports something the player cannot act on.
+LAST_MOVE_COLOR = (167, 139, 250, 255)
 
 
 def render_frames(out_dir, godot):
@@ -135,6 +139,39 @@ def _mark_selected():
 	ImageDraw.Draw(alpha).rounded_rectangle(
 		[m, m, w - 1 - m, h - 1 - m], radius=16 * SS, outline=255, width=7 * SS)
 	return SELECTED_COLOR, alpha
+
+
+def _mark_last_move():
+	"""The two squares the opponent's move joined: brackets on the cell's corners.
+
+	The pair always lands on one empty cell and one with a figure standing in it,
+	so the mark has to survive both -- which rules out anything centred, because
+	the figure buries it, and rules out a wash, because the empty half of the pair
+	would then be the only half anyone sees. The edges are the one part of a cell
+	a figure leaves clear, and this is drawn over the figures for the same reason
+	the selection frame is.
+
+	Broken at the middle of every side, where the selection frame is continuous.
+	That gap is what tells the two apart before their colours are compared, and
+	neither can be mistaken for the blob or the ring -- the two marks that mean
+	"you may go here" both sit in the middle of the cell, and this one never does.
+	"""
+	alpha, w, h = _alpha_canvas()
+	draw = ImageDraw.Draw(alpha)
+	t = 7 * SS  # the selection frame's own stroke, so the two read as one family
+	m = 9 * SS  # inside it, so a cell carrying both shows two separate marks
+	arm_x, arm_y = 40 * SS, 46 * SS
+	for x in (m, w - 1 - m):
+		for y in (m, h - 1 - m):
+			dx = arm_x if x == m else -arm_x
+			dy = arm_y if y == m else -arm_y
+			draw.rectangle(_box(x, y, x + dx, y + (t if y == m else -t)), fill=255)
+			draw.rectangle(_box(x, y, x + (t if x == m else -t), y + dy), fill=255)
+	return LAST_MOVE_COLOR, alpha
+
+
+def _box(x0, y0, x1, y1):
+	return [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
 
 
 def _alpha_canvas(fill=0):

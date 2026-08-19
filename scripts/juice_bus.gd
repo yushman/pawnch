@@ -19,6 +19,8 @@ const SHAKE_AMPLITUDE := 10.0
 const SHAKE_STEPS := 5
 const SHAKE_STEP_SEC := 0.032
 const BURST_SCALE_SEC := 0.12
+const BURST_GROWN := Vector2(1.0, 1.0)
+const BURST_AIMED_GROWN := Vector2(1.3, 0.62)
 const HAPTIC_MS := 60
 const WARM_VOLUME_DB := -80.0
 
@@ -55,16 +57,22 @@ func play_swing() -> void:
 # (recoil) naturally begins once hitstop releases. Returns cue->dispatch
 # deltas for the debug overlay -- dispatch times only, no budget attached
 # (criterion 3 was dropped; see the header comment).
-func fire_impact(local_pos: Vector2) -> Dictionary:
+#
+# `burst_angle` and `hitstop_sec` are how a clash gives its hit its own weight
+# without this bus growing a table of clash names: the caller passes what it
+# wants, HITSTOP_SEC is only the default. Leaving burst_angle unset keeps the
+# original random-angle round pop.
+func fire_impact(local_pos: Vector2, burst_angle := NAN,
+		hitstop_sec := HITSTOP_SEC) -> Dictionary:
 	var cue_usec := Time.get_ticks_usec()
 	_shake()
-	_burst(local_pos)
+	_burst(local_pos, burst_angle)
 	if impact_player:
 		impact_player.play()
 	var sfx_delta_ms := (Time.get_ticks_usec() - cue_usec) / 1000.0
 	Input.vibrate_handheld(HAPTIC_MS)
 	var haptic_delta_ms := (Time.get_ticks_usec() - cue_usec) / 1000.0
-	await _freeze()
+	await _freeze(hitstop_sec)
 	return {
 		"sfx_delta_ms": sfx_delta_ms,
 		"haptic_delta_ms": haptic_delta_ms,
@@ -78,10 +86,10 @@ func fire_impact(local_pos: Vector2) -> Dictionary:
 # the panel had already closed. Frames are emitted whatever the time scale is,
 # and a timer only ever fired on a frame boundary anyway, so the granularity is
 # unchanged.
-func _freeze() -> void:
+func _freeze(hitstop_sec := HITSTOP_SEC) -> void:
 	Engine.time_scale = 0.0
 	_freeze_released = false
-	var until_usec := Time.get_ticks_usec() + int(HITSTOP_SEC * 1_000_000.0)
+	var until_usec := Time.get_ticks_usec() + int(hitstop_sec * 1_000_000.0)
 	while not _freeze_released and Time.get_ticks_usec() < until_usec:
 		await get_tree().process_frame
 	_freeze_released = false
@@ -118,18 +126,25 @@ func _shake() -> void:
 	_shake_tween.tween_property(stage, "position", Vector2.ZERO, SHAKE_STEP_SEC)
 
 
-func _burst(local_pos: Vector2) -> void:
+# The star is radially symmetric, so an angle on its own would not read. An
+# aimed burst is therefore also an elongated one: it grows along the strike axis
+# and stays thin across it, which is what makes a hit that came down from above
+# look different from one that came in flat. Unaimed (burst_angle unset) keeps
+# the round pop the charge has always had.
+func _burst(local_pos: Vector2, burst_angle := NAN) -> void:
 	if not burst:
 		return
 	if _burst_tween and _burst_tween.is_valid():
 		_burst_tween.kill()
+	var aimed := not is_nan(burst_angle)
 	burst.position = local_pos
-	burst.rotation = randf_range(0.0, TAU)
+	burst.rotation = burst_angle if aimed else randf_range(0.0, TAU)
 	burst.scale = Vector2(0.4, 0.4)
 	burst.modulate.a = 1.0
 	_burst_tween = create_tween()
 	_burst_tween.set_parallel(true)
-	_burst_tween.tween_property(burst, "scale", Vector2(1.0, 1.0), BURST_SCALE_SEC) \
+	_burst_tween.tween_property(burst, "scale",
+			BURST_AIMED_GROWN if aimed else BURST_GROWN, BURST_SCALE_SEC) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_burst_tween.tween_property(burst, "modulate:a", 0.0, BURST_SCALE_SEC) \
 		.set_delay(BURST_SCALE_SEC * 0.3)

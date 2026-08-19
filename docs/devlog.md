@@ -2056,6 +2056,477 @@ every board state from one command, which is faster than any device loop — and
 name it next to `tests/render_board_pieces.gd`, since it carries the same real-window /
 `--rendering-driver opengl3` constraint.
 
+## 2026-08-19 — Day 6: the opponent, clash #2, and a cut-order decision that did not fire
+
+`greedy-bot-and-pawn-clash`, 17 of 24 tasks. Everything that can be built and verified on the
+host is done and green; the seven that are open are open because **the phone was not attached**
+for the part of the day that needed it — it answered `adb devices` once, then dropped off before
+`tools/deploy.sh` ran and did not come back. Same shape as Day 5's first half, and the same rule
+applies: a task nobody has seen on the target stays unticked, however finished the code is.
+
+The day's real output is not the bot. It is the answer to the question the plan put here.
+
+### ⚠️ The cut-order decision — no cut
+
+> *Are there two finished bespoke clashes at the end of today?*
+
+**Yes. Cut order steps 1 and 2 do not fire.** The queen keeps its bespoke clash on Day 8, chess
+keeps castling and en passant.
+
+The reasoning, stated so it can be argued with later. "Finished" here means the animation exists,
+plays from the real game rather than a debug button, holds its timing budget, and cannot be left
+half-played — and both clashes do all four, asserted by the suite rather than by eye. The cut is
+an **animation-overrun** signal: the plan wanted one bespoke clash per allotted half-day and got
+one, so there is no overrun to pay for. Firing the cut anyway would buy slack the schedule has
+not yet spent.
+
+What this decision explicitly does **not** claim: that either clash is *good*. Criterion 4 — the
+recording next to Ani Chess 3D, and the verdict — has never been run for the knight clash and was
+not run today for the pawn one. That is the Day-3 kill checkpoint's own deferred debt, tracked to
+Day 10, and it is a **quality** gate rather than a throughput one. Two clashes exist; whether they
+win is still unanswered, and today did not make it any more answered. Conflating those two would
+be the comfortable mistake here.
+
+### What shipped
+
+**The opponent** (`scripts/greedy_bot.gd`, ~130 lines including the comments explaining why it is
+bad on purpose). One ply, MVV-LVA, no evaluation, no search, no book. It enumerates its own
+pieces with `piece_at()` over the 64 squares and asks `legal_moves()` only about those — 16 move
+generations a turn rather than 64 — so the adapter stays at five functions and nothing new reaches
+into `vendor/chess/`. Ties between equal captures are drawn at random from a seeded RNG so the
+same opening does not replay the same game; quiet moves are a weighted draw with a 2:1 bias toward
+advancing. It hangs pieces constantly, which is the specification and not a defect (ADR-0005).
+
+**Its move goes through `GameSession.play_move()`, the same call a finger ends in.** There is no
+second commit path, and the freeze is the part that took the care: input goes down when the
+player's move is committed and comes back once, after the opponent's pause, its move and its clash
+— never in between. A test watches `is_frozen()` every frame across the whole turn and fails on a
+single flicker, because a flicker is a tap that plays a move out of turn.
+
+**The turn indicator** (`scripts/turn_indicator.gd`), taken deliberately today although the plan
+did not ask for it: it is a problem the bot *creates*. With two humans at one phone nobody ever
+had to be told whose move it was. Three states, no words — the side's own king plus a chevron on
+your move, three stepping dots while the opponent thinks, silence once the game is over and the
+banner is the message. It is a readout: `MOUSE_FILTER_IGNORE`, pushed by `GameSession`, and it
+redraws at 4 Hz only while the dots are animating.
+
+**Clash #2 — the pawn pounce.** The knight charges across the floor; the pawn never crosses it at
+all. It gathers 26 px back into a crouch squashed to 1.14×/0.80× of the rig's authored scale,
+launches, leaves the ground for a 300 px arc, tilts 0.34 rad into the strike, comes down on the
+defender's *head* from above (the burst sits at y=730 rather than the charge's y=900, elongated
+along the strike axis), lands with a 1.22×/0.78× overshoot squash, and hops home on a second,
+lower 165 px arc. Hitstop is 0.06 s against the charge's 0.09, so the two hits do not land with
+the same weight.
+
+**`CLASH_BY_TYPE` stopped being empty**, which is the thing Day 5 wrote a test to notice:
+`{"pawn": "pounce", "knight": "charge"}`, with the charge still serving as the fallback for the
+remaining four until Day 7 authors the shared generic strike. The check named *every type takes
+the fallback today* was **updated rather than deleted**, as intended — its replacement asserts
+that pawn and knight are the only authored types, that the other four still fall back, that the
+two clashes differ in name *and* in length, and that nothing can resolve to nothing.
+
+### The numbers, each with the command
+
+**The suite.** `godot --headless --script tests/run_headless.gd`, exit 0:
+
+```
+skip offsets (pounce): 181 fired every 10ms across the whole 1.80s clash, 3.1s
+skip offsets (charge): 191 fired every 10ms across the whole 1.90s clash, 3.2s
+desync smoke: 200 games, 11984 moves, 1540 captures, seed 20260817
+PAWNCH_TEST PASS checks=166 passed=166 failed=0 min=166 elapsed=50.6s
+```
+
+123 checks at the start of the day, 155 after the bot and the indicator, **166** after the pounce.
+`MIN_CHECKS` was raised to 166 in the same commit — a floor left behind at 123 is a floor that has
+been switched off, and it was verified live by setting it to 167 first and confirming the run
+fails with `reason=too_few_checks` and zero failing checks.
+
+**Two skip sweeps now, not one.** This was a trap that would have been invisible: the suite's
+capture fixture plays `1.e4 d5 2.exd5`, which is a **pawn** capture, so the entire 10 ms sweep
+silently moved onto the new pounce the moment `pawn` entered the table, and the knight charge
+would have lost its only skip coverage while the suite stayed green. Each sweep now runs to its
+own clash's length. `CLASH_LENGTH` as a single constant is gone; the bound comes from
+`clash_for(type)["duration"]`.
+
+**Cue timing, from the unskipped runs in that same suite output** (`grep PAWNCH_CUE`):
+
+```
+pounce: impact t=0.501  recoil t=0.805  exit t=1.501  done t=1.805
+charge: impact t=0.556  recoil t=0.852  exit t=1.605  done t=1.902
+```
+
+Impact inside 0.6 s and the whole thing inside 2.0 s for both. **These are host numbers, not
+device numbers** — they say the schedule is right, not that the phone can keep it. Criterion 2
+needs `WINDOW=15 tools/frametime.sh --cold` and is unrun.
+
+### Two things that were only found by looking
+
+**A white pounce passed behind the skeleton.** `Stage` draws White before Black, so at the top of
+the arc the attacker went *behind* the defender and the strike — the loudest moment of the clash —
+happened out of sight. The black pounce looked perfect, which is exactly why both colours had to
+be rendered rather than one. Fixed with a `z_index` lift for the airborne beats, restored on
+landing and in `_reset_stage()`, and `z_index` added to the suite's rig-state string so a skip
+cannot strand it lifted. The bot makes this more than a theoretical case: black captures now
+happen in every game.
+
+`tests/render_clash_frames.gd` is what caught it — a sibling of Day 5's
+`render_board_states.gd`, mounting `main.tscn` in a SubViewport and writing a 14-sample contact
+sheet per clash from one command. Same real-window / `--rendering-driver opengl3` constraint as
+the other two render scripts. It also drove two staging fixes by eye (strike overlap 215 → 185,
+return hop 130 → 165).
+
+**A pre-existing race in `_ready()`, found and deliberately not fixed.** A clash that starts
+inside the panel's warm-up window has its `wipe_in` stopped by the `close_now()` that `_warm()`
+issues a frame later, and renders as a black gap with only the wipe-out visible. It reproduces
+identically at `HEAD` on the charge, so it is not the pounce's, and it is only reachable from a
+tool script rather than from the app — the render script works around it by waiting 30 frames.
+Logged here rather than fixed, because it is out of today's change and the workaround costs
+nothing.
+
+### What broke
+
+**Both implementation agents were killed mid-flight by an API connection error.** The first had
+already written the bot, the indicator and 32 checks and died before it could tick a single box;
+the second died before its first edit. Nothing was corrupted — the tree was inspected file by file
+and the suite was re-run from scratch before anything continued — but it is worth writing down
+that "the work is done" and "the process reported it was done" are different facts, and only one
+of them was available.
+
+**The phone dropped off `adb` twice**, the second time between confirming it was attached and
+running `tools/deploy.sh`. Everything in block E is consequently unrun.
+
+### Left open
+
+Seven tasks, all of them device work or gated on it: the full game against the bot with at least
+four clashes (18), criterion 1 and criterion 2 for the pounce (19, 20), its 15 s recording next to
+the knight's (21), and the on-device halves of the bot's reply-time log (7) and the indicator's
+three screenshots (8). The change stays open; so do `knight-takes-pawn-clash` and
+`duel-panel-and-rig`, both carrying the debt named on Day 5.
+
+Still no CI. `.github/workflows/` is still empty and Day 7 still owes it. Both of today's test
+groups were written CI-shaped — one command, no device, no display, meaningful exit code — so
+picking them up should be a matter of writing the workflow file and nothing else.
+
+## 2026-08-19 — Day 6 (continued): the phone came back, and the pounce was measured
+
+The phone reattached and the whole device pass ran in one session. 23 of 24 tasks now; the one
+still open is the full game against the bot, which is a **human** playtest and is deliberately
+not something scripted taps can stand in for.
+
+Every clash below was reached by playing real moves through the board, not by the debug button,
+except the one charge measurement that says otherwise.
+
+### Getting a pawn clash on demand, deterministically
+
+The pounce needed to be the **first** clash after a cold start (criterion 2, failure mode 4), and
+the bot's reply is random, so the position could not simply be set up. The trick that worked, and
+it is worth writing down because it will be wanted again: **march a white pawn to e6.** After
+`1.e4 2.e5 3.e6` the white pawn attacks d7 and f7, both of which are black pawns on their home
+squares — and the bot is greedy, so if it has no better capture it takes on e6 with one of them.
+Either way the first clash of the session is pawn-takes-pawn, whichever colour ends up attacking.
+
+It fired first time: `PAWNCH_BOT move=f7e6 reason=capture victim=pawn ms=42`.
+
+Board taps are computable rather than hunted for, which is what made this scriptable at all:
+`x = (rank-1)*135 + 67.5`, `y = 520 + file_index*170 + 85` on the 1080×2400 panel, straight out of
+`BoardView.screen_cell()` and `board_origin()`.
+
+### Criterion 1 — pass
+
+`adb logcat -d | grep PAWNCH_CUE`, first clash after a cold start:
+
+```
+PAWNCH_CUE clash attacker=black_pawn defender=white_pawn clash=pounce fallback=false
+PAWNCH_CUE first_frame t=0.032
+PAWNCH_CUE impact t=0.503
+PAWNCH_CUE dispatch sfx_delta=0.4ms haptic_delta=6.2ms
+PAWNCH_CUE recoil t=0.806
+PAWNCH_CUE exit t=1.510
+PAWNCH_CUE done t=1.815
+```
+
+**Tap → first clash frame 32 ms** against a 200 ms budget, **total 1.815 s** against 2.0 s, impact
+at 0.503 s inside its 0.6 s. A later warm run read 4 ms / 1.840 s. The host numbers from the suite
+were 0.501 / 1.805 — the schedule survives contact with the device, which is the useful part of
+having measured it twice.
+
+**The bot replied in 39, 44 and 42 ms** on the device, against a 1 s budget and a 300 ms target
+(ADR-0005). The deliberate 350 ms pause is therefore ~89% of everything the player waits for,
+which is the intended shape: the wait is a presentation decision, not a computation.
+
+### Criterion 2 — fails, and the interesting part is *which* number fails
+
+`WINDOW=30 tools/frametime.sh --cold`, then `WINDOW=15 tools/frametime.sh` twice more in the same
+session, all on `xc95498pssdi7prg` (`2312FPCA6G`, MT6789, Android 16):
+
+| | frames | dropped | worst gap |
+|---|---|---|---|
+| idle baseline, same session, untouched | ~892 | 1 | 25.0 ms |
+| charge (knight, debug button) | 113 | 1 | 29.5 ms |
+| **pounce, first clash after cold start** | 108 | 1 | **57.9 ms** |
+| **pounce, warm, later in the session** | 108 | 1 | **53.4 ms** |
+
+Two separate findings live in that table and conflating them would be wrong.
+
+**One dropped vsync per clash is a property of the panel, not of the pounce** — the charge drops
+exactly one too, in the same session, on the same device. It is roughly 8× the idle rate (1 in 108
+frames against 1 in 892), so it is genuinely attributable to the clash rather than to the device's
+own idle noise, and it applies to work that shipped on Day 3.
+
+**The doubled stall is the pounce's own.** 53–58 ms against the charge's 29.5 ms — about three
+missed vsyncs at once rather than two. It reproduces warm, so it is **not** a cold-start first-use
+cost and `_warm()` is not the thing at fault. The suspects are the extra work the pounce does
+around the impact frame on top of what the charge does: more live tweens, the `z_index` swap, and
+a squash that rewrites both rigs' scales.
+
+Per the Day-3 framing this is engineering, not the gate: **criterion 2 failing is a day of work,
+not a reason to stop.** Logged for the Day 9 perf pass rather than chased now.
+
+### Criterion 4 — the recordings exist, and one was recorded twice on purpose
+
+`adb shell screenrecord --size 1080x2400 --time-limit 15`, split with
+`ffmpeg -vf "fps=15,crop=1080:1500:0:450"` — the crop is the duel panel's own rect, which is what
+makes the figures big enough to judge. `screencap` is still useless on this device.
+
+The first comparison I built was **wrong, and it flattered the result**: the charge recording had
+white attacking and the pounce recording had black attacking. Defeat is asymmetric *by character*
+(ADR-0007) — the skeleton's head flies off, the valkyrie falls backwards — so half of what looked
+like "two different clashes" was the two characters dying differently, which would have been just
+as true of two identical clashes. Re-recorded with **white attacking in both**, which is the only
+comparison that isolates the clash from the character.
+
+Recordings in `build/day6/` (gitignored, same as Day 4's); the frame sheets the judgement was
+actually made on are committed as `docs/media/day6-*.png`.
+
+**With the attacker held constant, they do read as two different fights.** The charge stays on the
+ground the whole way, the two figures never overlap before the hit, and the strike comes in
+horizontally at head height. The pounce leaves the ground, and the attacker is above and on top of
+the defender through the strike, then drops and hops back. Different silhouette, different contact,
+different recovery.
+
+**The defect the recording found, which no test could have:** at the top of the arc the attacker
+**completely occludes the defender** for roughly three frames — the skeleton disappears behind the
+valkyrie right before the hit lands. This is the direct cost of the `z_index` lift that fixed the
+opposite bug on the host, where the attacker passed *behind* the defender and struck out of sight.
+One boundary, two failure modes, and the fix traded one for the other. It is ~0.2 s at 60 fps, so
+it may read as a pass-over rather than as a bug — but in a clash whose whole job is "you see who
+dies", the victim vanishing in the run-up is not nothing. It wants either a wider apex gap
+(`POUNCE_GAP` was narrowed 215 → 185 on host evidence, and the device says that was too far) or a
+z-lift that engages after the apex instead of through it. Day 8, with the rest of the panel's
+staging debt.
+
+**What criterion 4 still does not answer.** The Ani Chess 3D side-by-side and the verdict have
+never been run — not for the knight on Day 3, and not for the pawn today. Today's recording
+answers *"do the two clashes differ"*, which is a question this change invented for itself. The
+kill checkpoint's own question is still on Day 10 with no retry budget behind it, and the
+cut-order decision above deliberately does not lean on it.
+
+### The turn indicator on the device
+
+Visible in every frame sheet, top left: three stepping dots while the bot decides, a gold chevron
+on the player's move. It reads at a glance in a 260 px-wide thumbnail, which is a harsher test than
+the phone. The `PAWNCH_TURN state=opponent` / `state=player` lines interleave with the moves exactly
+as the rules dictate, including staying on `opponent` through the whole of a bot capture's clash.
+
+### Still open
+
+**Task 18, the full game against the bot, played by a person.** Scripted taps got seven moves and
+three clashes in and proved the plumbing, and that is all they can prove. Whether the duel repeats
+too fast, whether the indicator is noticed, whether 350 ms is the right pause — none of that
+survives being asked of a log. It stays open on purpose rather than being ticked by a sequence of
+`adb shell input tap`.
+
+## 2026-08-19 — Day 6 (playtest): the first game a person played against the bot
+
+Task 18, and the only task of the day that scripted taps could not have closed. A full game,
+by finger, to checkmate. It found four things, three of them in the first five minutes, and
+**not one of them was findable by any test in this repo.**
+
+### What the log says
+
+`adb logcat -d`, buffer raised to 16 MB beforehand (`adb logcat -G 16M`) because the default
+ring would have eaten the opening by the time the game ended — and no live `adb logcat` pipe,
+because streaming one is load on the device and this was a run about how the game *feels*:
+
+```
+73 moves, 24 clashes, 8 captures by the bot, 0 refused moves, 0 board/rules divergences
+bot reply: 53 ms worst
+PAWNCH_OUTCOME outcome=checkmate winner=white fen=6R1/8/8/4QBk1/8/6P1/1PP2K2/7R b - - 5 37
+```
+
+The bot hung pieces freely and lost, which is ADR-0005 working as designed rather than a
+disappointment. Twenty-four clashes in one game against a plan that asked for four.
+
+**The clash mix is the number worth keeping**, because it explains one of the findings on its own:
+
+| clash | times |
+|---|---|
+| charge (fallback + knight) | 19 |
+| pounce (pawn) | 5 |
+
+Seven of those nineteen were the **queen** alone. The pawn rarely captures in a real game, so
+clash #2 — the whole second half of the day — was on screen for about a fifth of the duels, and
+seldom next to the one it is supposed to contrast with.
+
+### What the player said
+
+> — дуэль не надоедает
+> — индикатор заметен
+> — ходы противника слишком быстрые, не заметно куда он сходил, особенно после взятия
+> — прыжок не заметен
+> — нельзя снять выделение фигуры повторным тапом на неё
+
+**"Дуэль не надоедает"** is the one that matters most and it is easy to skim past. Day 5's session
+had the opposite result — the repetition was noticeable by the third capture — and the plan's
+answer to that was "add a second clash". Twenty-four duels in one sitting without tiring of them
+is the strongest signal the sprint has produced so far, and it is worth noticing that it arrived
+*before* the second clash was working, which means the credit probably belongs to the clash being
+skippable and short rather than to variety.
+
+**"Индикатор заметен."** Taken deliberately today against the plan, on the argument that the bot
+turns "whose turn is it" from a non-question into a real one. Confirmed.
+
+**"Прыжок не заметен."** This is clash #2 failing its own spec scenario — *"told apart with the
+crests hidden, which of the two it is, is still obvious"* — in the only place that scenario can
+honestly be evaluated. It agrees with what the frame sheets showed and I under-read: the arc is
+legible when you know to look for it and invisible when you do not. Two causes were already
+identified from the recording (an apex gap narrowed 215 → 185 on host evidence that the device
+contradicted, and a `z_index` lift that hides the defender for ~3 frames at the apex), and a
+third is arithmetic: 5 of 24. Block G was added to the change for it.
+
+**"Ходы противника слишком быстрые."** The 350 ms pause sits *before* the bot's move and there is
+nothing after it — the board updates and it is your turn again. After a capture it is worse,
+because the clash spends the player's whole attention on the move it is meant to explain, and by
+the time the board comes back the piece is simply somewhere else. **The fix is a mark, not a
+longer pause**: time lets the player look and does not tell them where to look, and it is gone by
+the time they have finished looking. A last-move mark stays on the board while they think. New
+change `readable-opponent-move`.
+
+**"Нельзя снять выделение повторным тапом."** A genuine gap rather than a regression — the
+move-input spec never said what a second tap on the selected piece does, so `GameSession.tap()`
+re-selects it. The obvious fix is wrong in an interesting way: deselecting inside `tap()` would
+disarm `InputRouter`'s drag, since the press that puts a piece down and the press that starts a
+drag are the same press. It has to be decided on the *release*. Written into the new change's
+spec as two scenarios so it cannot be implemented the naive way by accident.
+
+### The cut-order decision stands
+
+Re-examined against "прыжок не заметен", and it stays **no cut**. The cut is an animation-overrun
+signal, and what the playtest found is a staging problem in an animation that is written,
+measured and inside budget — that is a number to change, not a clash to rebuild. Block G task 27
+carries the escape hatch honestly: if the pounce still cannot be told apart after the amplitude
+pass, that *is* a cut-order signal and it reopens the decision rather than earning another round
+of tuning.
+
+## 2026-08-19 — Day 6 (fixes): the playtest's three findings, closed
+
+All three of the afternoon's findings fixed and verified on the phone. `greedy-bot-and-pawn-clash`
+is 27/27 with Block G closed; the new change `readable-opponent-move` is 6/6. Suite at **184
+checks, 50.0 s, exit 0**, floor raised to 184.
+
+### The pounce: an apex gap that is measured, not chosen
+
+The amplitude pass produced one number worth keeping for its reasoning rather than its value.
+
+`POUNCE_APEX_GAP := 430` — the x gap to the defender at the top of the arc, up from an implied
+185. It is not taste. The skeleton's skull is the top ~45% of the figure and its left edge sits
+~270 px left of its own root, so **any apex that overlaps the defender's x range puts skull, not
+background, under the attacker's feet — and a figure with foreground under its feet does not read
+as airborne however high it is.** 330 was tried first and the attacker's legs were still behind
+the skull. 430 leaves ~70 px of open background between the two silhouettes, and that gap is what
+the eye actually reads as height.
+
+`POUNCE_HEIGHT := 380` (was 300) is the opposite kind of number — a ceiling rather than a choice.
+At the 0.714 mount scale the figure is ~695 px, so a root at 1115−380 leaves the crest 35–40 px
+below the panel's top edge. More than 380 clips the crest, which is the one part of the figure
+ADR-0007 says carries the piece's identity.
+
+**A hang was added at the top of the arc and it was paid for, not borrowed.** New `apex` (0.30)
+and `dive` (0.44) beats: the climb went from one 0.36 s tween to 0.16 s — a longer rise in under
+half the time, which reads as a launch instead of a drift — and the 0.14 s that freed up became
+the hang. The impact moved 0.50 → 0.54, and that 0.04 s came out of the dead tail between
+`hop_end` and `exit` where the attacker was already home standing still. **Total unchanged at
+1.80 s.**
+
+`POUNCE_Z_LIFT` stayed 10 but now engages **on the dive** and drops on landing, rather than across
+the whole flight. That is the occlusion fix: at a 430 px apex gap the silhouettes never touch, so
+draw order cannot matter before the dive, and the defender no longer disappears behind the
+attacker for three frames in the run-up. One boundary, two failure modes — the first fix traded
+one for the other, and the gap is what let the second fix have neither.
+
+Three checks now pin all of it, so undoing any of it costs a red suite rather than another
+playtest: the hang is ≥ 0.12 s, the beat order is climb → hang → dive → impact, and
+`POUNCE_APEX_GAP ≥ POUNCE_GAP + 200`.
+
+### On the device
+
+`tools/deploy.sh`, then a real game played through the board rather than the debug button:
+
+```
+PAWNCH_CUE clash attacker=black_pawn defender=white_pawn clash=pounce fallback=false
+PAWNCH_CUE impact t=0.555      (budget 0.60)
+PAWNCH_CUE done  t=1.821       (budget 2.00)
+```
+
+The scheduled impact is 0.544 and the device reported 0.555 — the ~13 ms the device has run late
+all sprint, predicted before the run rather than explained after it. 45 ms of margin left.
+
+**The crests-hidden question, answered on the phone this time: yes.** In the charge both heads
+stay at the same eye level and the attacker slides in sideways. In the pounce the attacker's head
+rides a full head-height above the defender's, alone in open background with a motion trail, for
+about 0.2 s — a third of the clash — and then comes down. That is a different silhouette in a
+still frame. No crest clipping at the top edge, and the defender is identifiable in every frame of
+the approach.
+
+Sheets: `docs/media/day6-pounce-black.png` (device, after), `day6-pounce-white.png` (host, after),
+`day6-pounce-white-before.png` (host, before), `day6-charge-white.png`.
+
+**The cut-order decision therefore stands as written, and now on evidence rather than on
+argument.** Block G task 27 carried the escape hatch — still not tellable apart would have
+reopened it — and it did not have to be used.
+
+### The last-move mark
+
+Violet (#a78bfa) **corner brackets** on the two squares of the opponent's last move, held until
+the player commits their own. Corners rather than a wash or a tint because the pair always lands
+on one empty cell and one with a figure standing in it, and the cell edges are the only part a
+figure leaves clear. It is tellable from the other marks three ways at once: geometry (corners,
+never the middle — the legal-move glow is a centred blob and the capture ring is a circle around
+the figure, so no two share a pixel neighbourhood), colour (the only cool violet on a board of
+cyan, red and amber), and draw order (under the ring and the selection frame, so the marks the
+player can *act* on stay dominant on a cell carrying two).
+
+Baked into `assets/board/pieces.png` as a fifth region on the existing page, so it costs nothing:
+the rendered frame still reads `draw_calls_max=8` with the mark on screen.
+
+On the device it does the job it was added for — `f7` empty and bracketed, `e6` bracketed with the
+pawn standing in it, after a capture whose clash had just taken the player's eyes off the board
+(`docs/media/day6-last-move-after-capture.png`). **No pause was added anywhere**; the bot's 350 ms
+stays exactly as it was, which was the point: time lets you look, a mark tells you where.
+
+**En passant was a decision, not an oversight.** The marks name where the piece came from and
+where it now stands, not the square the captured pawn vanished from. The question this mark
+answers is "which piece moved, and to where" — the capture itself was just shown full screen. The
+delta spec said "the captured square", which was loose; the spec was corrected to match the
+behaviour rather than the behaviour bent to match the spec.
+
+### Deselect, and why the obvious fix was wrong
+
+Putting a piece down is decided **on the release**, in `InputRouter`, never in
+`GameSession.tap()`. The naive version deselects in `tap()` — and `_press()` calls `tap()` and then
+arms a drag only if the piece ended up selected, so deselecting there disarms the drag and **an
+already-selected piece can no longer be dragged at all.** The press that puts a piece down and the
+press that starts a drag are the same press; only the release tells them apart. Written into the
+spec as two scenarios before any code was touched, so it could not be implemented the naive way by
+accident, and there is now a check for each.
+
+### One trap paid for
+
+**Images placed anywhere under the project directory are imported by Godot and shipped in the
+APK.** Dropping the evidence sheets into `docs/media/` generated `.import` files immediately and
+would have added ~5 MB of contact sheets to the build. `docs/media/.gdignore` fixes it; a full
+`godot --headless --import` afterwards confirmed nothing regenerates.
+
 ## Ideas for later
 
 - **Regenerate the head per piece type, instead of one shared head wearing a swapped crest.** This
@@ -2093,12 +2564,15 @@ name it next to `tests/render_board_pieces.gd`, since it carries the same real-w
   paying seven times what it needs to and the fix is probably one `visible = false` in
   `close_now()` paired with a `visible = true` in `open()`. It wants measuring rather than
   assuming, because `_warm()` is the reason the panel is drawable at all before the first clash.
-- **Say whose turn it is, and answer a tap on the wrong colour.** Items 2 and 3 of Day 5's
-  "what felt wrong to play": there is no turn indicator, and tapping a piece of the side not to
-  move produces nothing at all — no mark, no flash, no sound. The cheapest honest version is
-  probably the refused piece's own cell flashing once, reusing a mark that already exists in the
-  atlas, plus something in the free band that says whose move it is without words. Not today: it
-  is new behaviour and it needs a change of its own.
+- **Answer a tap on the wrong colour.** ~~Say whose turn it is~~ — item 2 of Day 5's "what felt
+  wrong to play" **shipped on Day 6**, because the bot turned "is it my turn" from a non-question
+  into a real one. Item 3 did not: tapping a piece of the side not to move still produces nothing
+  at all — no mark, no flash, no sound. With an opponent on the board that is now *most* of what
+  a child can tap, which makes it worse than it was when it was written down, not better. The
+  cheapest honest version is still the refused piece's own cell flashing once, reusing a mark that
+  already exists in the atlas. Deliberately not taken on Day 6: it is new behaviour, the day
+  already carried the bot and clash #2, and a decision to take half of something is worth more
+  than a decision to take all of it badly.
 - **The orange "this piece is defended" highlight**, if difficulty levels ever exist. It does not
   need a sixth adapter function: swap the enemy piece in the FEN for one of ours, hand the move to
   the opponent, and ask `legal_moves` who takes it back. Pins fall out correctly for free. ~30 lines

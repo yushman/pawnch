@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://bxqmc0y3vqfgk"]
+[gd_scene load_steps=9 format=3 uid="uid://bxqmc0y3vqfgk"]
 
 [ext_resource type="Script" path="res://scripts/frame_probe.gd" id="1_probe"]
 [ext_resource type="PackedScene" path="res://scenes/duel_panel.tscn" id="2_panel"]
@@ -6,6 +6,8 @@
 [ext_resource type="Script" path="res://scripts/game_session.gd" id="4_session"]
 [ext_resource type="Script" path="res://scripts/input_router.gd" id="5_input"]
 [ext_resource type="Script" path="res://scripts/game_over_banner.gd" id="6_banner"]
+[ext_resource type="Script" path="res://scripts/turn_indicator.gd" id="7_turn"]
+[ext_resource type="Script" path="res://scripts/greedy_bot.gd" id="8_bot"]
 
 [node name="Main" type="ColorRect"]
 anchors_preset=15
@@ -34,6 +36,19 @@ script=ExtResource("4_session")
 
 [node name="InputRouter" type="Node" parent="."]
 script=ExtResource("5_input")
+
+[node name="GreedyBot" type="Node" parent="."]
+script=ExtResource("8_bot")
+
+[node name="TurnIndicator" type="Control" parent="."]
+layout_mode = 1
+anchors_preset=15
+anchor_right=1.0
+anchor_bottom=1.0
+grow_horizontal=2
+grow_vertical=2
+mouse_filter = 2
+script=ExtResource("7_turn")
 
 [node name="DuelPanel" parent="." instance=ExtResource("2_panel")]
 

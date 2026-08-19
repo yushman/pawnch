@@ -12,6 +12,7 @@ const RulesAdapter = preload("res://scripts/rules_adapter.gd")
 const BoardViewScript = preload("res://scripts/board_view.gd")
 const GameSessionScript = preload("res://scripts/game_session.gd")
 const DuelPanelScript = preload("res://scripts/duel_panel.gd")
+const GreedyBotScript = preload("res://scripts/greedy_bot.gd")
 
 const PERFT_EXPECTED := [20, 400, 8902, 197281]
 
@@ -28,6 +29,24 @@ const STALEMATE_IN_ONE_FEN := "7k/8/8/8/8/8/5Q2/6K1 w - - 0 1"
 const CHECK_FEN := "rnbqkbnr/pppppppp/8/8/8/5Q2/PPPPPPPP/RNB1KBNR w KQkq - 0 1"
 # Two pieces, on squares that a mirror would move and a rotation would not.
 const TWO_PIECE_FEN := "8/8/8/8/8/8/8/3QK3 w - - 0 1"
+
+# Crafted for the bot, black to move in each. A knight offered a queen and a
+# pawn; a pawn and a rook offered the same knight; a queen offered a pawn that
+# is defended twice; a pawn offered en passant.
+const BOT_MVV_FEN := "4k3/8/8/4n3/8/3Q1P2/8/4K3 b - - 0 1"
+const BOT_LVA_FEN := "3rk3/8/2p5/3N4/8/8/8/4K3 b - - 0 1"
+const BOT_LOSING_FEN := "4k3/8/8/3q4/8/8/3P4/3RK3 b - - 0 1"
+const BOT_EP_FEN := "4k3/8/8/8/3pP3/8/8/4K3 b - e3 0 1"
+# Nothing to take, and a mix of moves that carry a piece toward white and moves
+# that do not -- seven of twelve advance, so a uniform draw would already be a
+# majority and only a clear margin over that shows the bias exists.
+const BOT_QUIET_FEN := "4k3/8/3n4/8/8/8/4P3/4K3 b - - 0 1"
+# BOT_MVV_FEN a move earlier: white plays f3f4 and the queen is still hanging,
+# so the reply is a capture and a clash.
+const BOT_CAPTURE_FEN := "4k3/8/8/4n3/8/3Q1P2/8/4K3 w - - 0 1"
+# 1.Ra8 is mate, played by the player, so the bot's turn never comes.
+const BACK_RANK_MATE_FEN := "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1"
+const BOT_SEED := 20260818
 
 ## Every 10 ms across the full clash, as the plan asks. The epsilon is there so
 ## the last offset -- the clash's own length -- is not lost to float addition.
@@ -95,9 +114,12 @@ func run(scene_tree: SceneTree) -> void:
 	_run_capture_ordering()
 	_run_outcome_smoke()
 	_run_capture_marks()
+	_run_last_move_marks()
 	_run_clash_lookup()
+	_run_bot_smoke()
 	await _run_gesture_smoke()
 	await _run_clash_finish()
+	await _run_bot_turn()
 	await _run_skip_offsets()
 	_run_desync_smoke()
 
@@ -483,6 +505,66 @@ func _run_capture_marks() -> bool:
 	return ok
 
 
+# The opponent's reply is over in a third of a second and the board used to say
+# nothing about where it went (board-view spec). Neither node here is in a tree,
+# which is what makes the whole reply -- the opponent's turn, its move and its
+# clash -- land inside the play_move() call below: the pause is a scene-tree
+# timer and is skipped, and a null clash is a clash of zero duration.
+func _run_last_move_marks() -> bool:
+	var ok := true
+	var board: BoardView = BoardViewScript.new()
+	var session: GameSession = GameSessionScript.new()
+	var bot := GreedyBotScript.new()
+	bot.rng.seed = BOT_SEED
+	session.bot = bot
+	session.attach(board)
+
+	ok = _check("a fresh game has no last move to report",
+		session.last_move().is_empty() and board.last_move().is_empty()) and ok
+
+	session.play_move("e2e4")
+	var reply := session.last_move()
+	var pair := ",".join(PackedStringArray(reply))
+	ok = _check("the opponent's quiet reply is reported as a pair of squares (%s)" % pair,
+		reply.size() == 2) and ok
+	ok = _check("the pair names the square it left and the square it landed on",
+		reply.size() == 2 and board.piece_on(reply[0]) == null
+		and board.piece_on(reply[1]) != null
+		and board.piece_on(reply[1])["color"] == "black") and ok
+	ok = _check("the board is told the pair rather than diffing it out of the position",
+		board.last_move() == reply) and ok
+
+	# The player's own commit clears it. The opponent is detached for this one
+	# move because with it attached its reply lands in the same call and sets the
+	# mark again — the moment being checked is between the two.
+	session.bot = null
+	ok = _check("the player's own move plays", session.play_move("g1f3")) and ok
+	ok = _check("and committing it clears the opponent's mark",
+		session.last_move().is_empty() and board.last_move().is_empty()) and ok
+	session.bot = bot
+
+	# A capture is the case the mark exists for: the clash has had the player's
+	# eyes off the board for the whole of the move it is explaining.
+	session.load_fen(BOT_CAPTURE_FEN)
+	ok = _check("a position that was loaded rather than played reports nothing",
+		session.last_move().is_empty()) and ok
+	session.play_move("f3f4")
+	ok = _check("a reply that captures is reported the same way, origin and destination",
+		session.last_move() == ["e5", "d3"] and board.last_move() == ["e5", "d3"]) and ok
+	ok = _check("and the mark is there once the clash is over and the board has caught up",
+		board.piece_on("d3") != null
+		and board.placement() == session.fen().split(" ")[0]) and ok
+
+	session.restart()
+	ok = _check("a restarted game has nothing left to report",
+		session.last_move().is_empty() and board.last_move().is_empty()) and ok
+
+	board.free()
+	session.free()
+	bot.free()
+	return ok
+
+
 # Tap and drag are two gestures and one path (move-input spec), and the only way
 # to prove they are one path is to drive InputRouter itself. This is also the
 # one suite that loads the real scene, so it is the one that would catch a node
@@ -493,6 +575,11 @@ func _run_gesture_smoke() -> bool:
 	tree.root.add_child(main)
 	await tree.process_frame
 	await tree.process_frame
+	# Both colours are played by hand here, so the opponent is detached: with it
+	# attached this suite would be racing it for black. Detaching it is also the
+	# check that a session without one is the session Days 1-5 shipped. After the
+	# frames, not before: _ready() -- which wires it -- runs on the first one.
+	main.get_node("Session").bot = null
 
 	var router: InputRouter = main.get_node("InputRouter")
 	var board: BoardView = main.get_node("Board")
@@ -572,6 +659,42 @@ func _run_gesture_smoke() -> bool:
 	ok = _check("a back press duplicated by the platform is dropped, not a quit",
 		not router._back()) and ok
 
+	# Putting a piece back down, and the trap under it: the decision is taken on
+	# the release, because the press that puts a piece down and the press that
+	# starts dragging it are the same press. Taken on the press — in
+	# GameSession.tap() — the second half of this block fails, because the piece
+	# would have been deselected before there was a drag to arm.
+	var down := board.cell_rect("e2").get_center()
+	router._press(down)
+	router._release(down)
+	ok = _check("a tap on a piece nothing had selected picks it up",
+		session.selected() == "e2") and ok
+	router._press(down)
+	ok = _check("pressing a piece that is already selected still arms a drag",
+		board.dragging() == "e2" and session.selected() == "e2") and ok
+	router._release(down)
+	ok = _check("and releasing on the same square puts it back down",
+		session.selected() == "" and session.destinations().is_empty()
+		and session.fen() == before and board.placement() == placement) and ok
+
+	# A different piece of the same colour still takes the selection over.
+	router._press(down)
+	router._release(down)
+	var queen := board.cell_rect("d1").get_center()
+	router._press(queen)
+	router._release(queen)
+	ok = _check("tapping a different piece of the same colour moves the selection to it",
+		session.selected() == "d1" and not session.destinations().is_empty()) and ok
+
+	# The same gesture that would have put d1 down, taken somewhere legal.
+	var d3 := board.cell_rect("d3").get_center()
+	router._press(queen)
+	router._moved(queen.lerp(d3, 0.5))
+	router._release(d3)
+	ok = _check("an already-selected piece dragged to a legal square still plays the move",
+		session.fen().split(" ")[0] == "rnbqkbnr/ppp1pppp/8/3p4/3P4/3Q4/PPP1PPPP/RNB1KBNR"
+		and session.selected() == "") and ok
+
 	main.free()
 	return ok
 
@@ -595,9 +718,159 @@ func _run_clash_lookup() -> bool:
 	var unknown: Dictionary = DuelPanelScript.clash_for("archbishop")
 	ok = _check("a type the table has never heard of falls back rather than returning nothing",
 		bool(unknown["fallback"]) and float(unknown["duration"]) > 0.0) and ok
-	ok = _check("every type takes the fallback today, because none has a clash of its own yet",
-		DuelPanelScript.CLASH_BY_TYPE.is_empty()) and ok
+
+	# This replaces "every type takes the fallback today", which was written to
+	# start failing on exactly the day a type got a clash of its own. What has to
+	# stay true is not that the table is empty -- it is that filling it in cannot
+	# weaken the guarantee above for the types still waiting.
+	var authored := PackedStringArray()
+	var fell_back := PackedStringArray()
+	for type: String in DuelPanelScript.PIECE_TYPES:
+		if bool(DuelPanelScript.clash_for(type)["fallback"]):
+			fell_back.append(type)
+		else:
+			authored.append(type)
+	ok = _check("the pawn and the knight have clashes of their own, and only those two do: %s"
+		% " ".join(authored), Array(authored) == ["pawn", "knight"]) and ok
+	ok = _check("the other four still take the fallback, until Day 7 authors the generic strike: %s"
+		% " ".join(fell_back), fell_back.size() == 4) and ok
+	ok = _check("and the fallback they take is a clash that actually exists",
+		DuelPanelScript.CLASH_BEATS.has(DuelPanelScript.FALLBACK_CLASH)) and ok
+
+	var pawn: Dictionary = DuelPanelScript.clash_for("pawn")
+	var knight: Dictionary = DuelPanelScript.clash_for("knight")
+	ok = _check("the two bespoke clashes are two clashes, not one under two names",
+		String(pawn["name"]) != String(knight["name"])) and ok
+	ok = _check("and they run for different lengths (%.2fs vs %.2fs), because two clashes of one length read as one"
+		% [float(pawn["duration"]), float(knight["duration"])],
+		absf(float(pawn["duration"]) - float(knight["duration"])) > 0.05) and ok
+	ok = _check("both stay inside the 2.0s budget end to end",
+		float(pawn["duration"]) <= 2.0 and float(knight["duration"]) <= 2.0) and ok
+	ok = _check("and the pawn's impact lands inside the first 0.6s (%.2fs)"
+		% float(DuelPanelScript.CLASH_BEATS["pounce"]["impact"]),
+		float(DuelPanelScript.CLASH_BEATS["pounce"]["impact"]) <= 0.6) and ok
+
+	# Block G. The pounce failed its own "told apart with the crests hidden"
+	# scenario in a real game -- the leap did not read -- and both fixes are
+	# single staging numbers that a later tune could quietly undo, which is
+	# exactly how the apex gap got narrowed 215 -> 185 in the first place. They
+	# are pinned here so undoing them costs a red suite rather than a playtest.
+	var pounce: Dictionary = DuelPanelScript.CLASH_BEATS["pounce"]
+	var hang: float = float(pounce["dive"]) - float(pounce["apex"])
+	ok = _check("the pounce holds the top of its arc for %.2fs, which is a beat rather than a transit"
+		% hang, hang >= 0.12) and ok
+	ok = _check("and it climbs, hangs, dives and only then hits, in that order",
+		float(pounce["crouch_end"]) < float(pounce["apex"])
+		and float(pounce["apex"]) < float(pounce["dive"])
+		and float(pounce["dive"]) < float(pounce["impact"])) and ok
+	# The z-lift is engaged on the dive, so nothing before it may be close
+	# enough for draw order to hide the defender behind the attacker.
+	ok = _check("the apex sits a rig's width further back than the strike (%.0fpx vs %.0fpx), so the attacker never covers the defender on the way in"
+		% [DuelPanelScript.POUNCE_APEX_GAP, DuelPanelScript.POUNCE_GAP],
+		DuelPanelScript.POUNCE_APEX_GAP >= DuelPanelScript.POUNCE_GAP + 200.0) and ok
 	return ok
+
+
+# The opponent, on its own, with no session and no board: it is handed a rules
+# adapter and hands back a string (ADR-0005). Everything here is a property of
+# that one function, and every FEN is crafted so exactly one move is the right
+# answer -- a bot that started looking at the reply would fail the third one.
+func _run_bot_smoke() -> bool:
+	var ok := true
+	var bot := GreedyBotScript.new()
+	bot.rng.seed = BOT_SEED
+
+	# The opening is white's move, so this is the one place the bot is asked to
+	# play white -- it plays black everywhere else in the game.
+	bot.color = "white"
+	ok = _check("the bot's move from the opening is legal",
+		_bot_move_is_legal(bot, _rules_at(START_FEN))) and ok
+	bot.color = "black"
+	for fen in [BOT_MVV_FEN, BOT_LVA_FEN, BOT_QUIET_FEN]:
+		ok = _check("the bot's move from %s is legal" % fen,
+			_bot_move_is_legal(bot, _rules_at(fen))) and ok
+
+	ok = _check("offered a queen and a pawn, the bot takes the queen",
+		bot.choose(_rules_at(BOT_MVV_FEN)) == "e5d3") and ok
+	ok = _check("two pieces on one victim: the pawn takes it, not the rook",
+		bot.choose(_rules_at(BOT_LVA_FEN)) == "c6d5") and ok
+	ok = _check("a capture that loses material next move is taken anyway",
+		bot.choose(_rules_at(BOT_LOSING_FEN)) == "d5d2") and ok
+	ok = _check("en passant is ranked as the capture of a pawn it is",
+		bot.choose(_rules_at(BOT_EP_FEN)) == "d4e3") and ok
+
+	# Two hundred draws from one quiet position: legal every time, forward more
+	# often than not, and the same seed replaying the same game.
+	var rules := _rules_at(BOT_QUIET_FEN)
+	var picks := _bot_picks(bot, rules, BOT_SEED)
+	var illegal := PackedStringArray()
+	var advancing := 0
+	for uci: String in picks:
+		if not rules.legal_moves(uci.substr(0, 2)).has(uci.substr(2, 2)):
+			illegal.append(uci)
+		elif _advances(uci, "black"):
+			advancing += 1
+	ok = _check("every one of %d quiet picks is legal: %s"
+		% [picks.size(), " ".join(illegal)], illegal.is_empty()) and ok
+	ok = _check("more than half of them carry a piece toward the player (%d of %d)"
+		% [advancing, picks.size()], advancing * 2 > picks.size()) and ok
+	var uniform := picks.size() * _advancing_share(rules, "black")
+	ok = _check("and clearly more than an unbiased draw would (%d vs %.0f)"
+		% [advancing, uniform], advancing > uniform + 20) and ok
+	ok = _check("the same seed replays the same sequence",
+		_bot_picks(bot, rules, BOT_SEED) == picks) and ok
+	ok = _check("a different seed does not",
+		_bot_picks(bot, rules, BOT_SEED + 1) != picks) and ok
+
+	bot.free()
+	return ok
+
+
+func _rules_at(fen: String) -> RulesAdapter:
+	var rules := RulesAdapter.new()
+	rules.fen(fen)
+	return rules
+
+
+func _bot_move_is_legal(bot: Node, rules: RulesAdapter) -> bool:
+	var uci: String = bot.choose(rules)
+	if uci.length() < 4:
+		return false
+	var piece = rules.piece_at(uci.substr(0, 2))
+	return piece != null and piece["color"] == bot.color \
+		and rules.legal_moves(uci.substr(0, 2)).has(uci.substr(2, 2))
+
+
+func _bot_picks(bot: Node, rules: RulesAdapter, seed_value: int) -> Array:
+	bot.rng.seed = seed_value
+	var picks := []
+	for i in 200:
+		picks.append(bot.choose(rules))
+	return picks
+
+
+func _advances(uci: String, color: String) -> bool:
+	var from_rank := uci.substr(1, 1).to_int()
+	var to_rank := uci.substr(3, 1).to_int()
+	return to_rank < from_rank if color == "black" else to_rank > from_rank
+
+
+# What the share of advancing moves would be if the bot drew uniformly, which is
+# the only number the bias can be measured against.
+func _advancing_share(rules: RulesAdapter, color: String) -> float:
+	var moves := 0
+	var forward := 0
+	for f in FILES:
+		for r in range(1, 9):
+			var square := "%s%d" % [f, r]
+			var piece = rules.piece_at(square)
+			if piece == null or piece["color"] != color:
+				continue
+			for to: String in rules.legal_moves(square):
+				moves += 1
+				if _advances(square + to, color):
+					forward += 1
+	return float(forward) / moves if moves > 0 else 0.0
 
 
 # finish_now() is the one way a clash ends, and every path that ends one goes
@@ -610,6 +883,8 @@ func _run_clash_finish() -> bool:
 	tree.root.add_child(main)
 	await tree.process_frame
 	await tree.process_frame
+	# Both colours by hand again: _play_capture() below plays black's move too.
+	main.get_node("Session").bot = null
 
 	var router: InputRouter = main.get_node("InputRouter")
 	var session: GameSession = main.get_node("Session")
@@ -684,6 +959,139 @@ func _run_clash_finish() -> bool:
 	return ok
 
 
+# The turn chain, in the real scene: the player's move, the opponent's pause,
+# its move, and its clash, as one stretch of unavailable input that comes back
+# by itself. The freeze is sampled every frame, because the failure this guards
+# is not "input never came back" but "it came back for a moment in the middle".
+func _run_bot_turn() -> bool:
+	var ok := true
+	var main: Node = load("res://scenes/main.tscn").instantiate()
+	tree.root.add_child(main)
+	await tree.process_frame
+	await tree.process_frame
+
+	var session: GameSession = main.get_node("Session")
+	var board: BoardView = main.get_node("Board")
+	var panel: Node = main.get_node("DuelPanel")
+	var banner: Node = main.get_node("GameOverBanner")
+	var indicator: Node = main.get_node("TurnIndicator")
+	var bot: Node = main.get_node("GreedyBot")
+	bot.rng.seed = BOT_SEED
+
+	ok = _check("the scene wires the session to an opponent playing black and an indicator",
+		session.bot != null and session.bot.color == "black"
+		and session.indicator != null) and ok
+	ok = _check("the indicator opens on the player's turn",
+		indicator.state() == "player" and indicator.turn_color() == "white") and ok
+	ok = _check("the indicator consumes no input",
+		indicator.mouse_filter == Control.MOUSE_FILTER_IGNORE) and ok
+
+	# A quiet move with the pause left in, so the reply is a separate event.
+	session.bot_pause_sec = 0.15
+	session.play_move("e2e4")
+	ok = _check("input freezes on the player's commit, before the reply lands",
+		session.is_frozen() and session.turn() == "black"
+		and board.placement().begins_with("rnbqkbnr/pppppppp")) and ok
+	ok = _check("the indicator names the opponent from the commit onward",
+		indicator.state() == "opponent" and indicator.turn_color() == "black") and ok
+	var thaws := await _watch_freeze(session)
+	ok = _check("input thaws once, after the reply, and never between the two moves (%d)"
+		% thaws, thaws == 1) and ok
+	ok = _check("the reply is on the board and it is the player's move again",
+		session.turn() == "white" and board.placement() == session.fen().split(" ")[0]) and ok
+	ok = _check("input came back by itself with nothing selected",
+		not session.is_frozen() and session.selected() == "") and ok
+	ok = _check("the indicator followed the rules back to the player",
+		indicator.state() == "player" and indicator.turn_color() == "white") and ok
+
+	# A capture by the opponent takes the same clash path a player capture does,
+	# and ends in the same place whether it is watched or cut short.
+	session.bot_pause_sec = 0.0
+	var full := await _bot_capture_run(session, board, panel, false)
+	print("opponent capture rest state: %s" % full)
+	ok = _check("the opponent's capture plays a clash and the board catches up",
+		full.contains("fen=4k3/8/8/8/5P2/3n4/8/4K3") and full.contains("frozen=false")
+		and full.contains("clashing=false") and full.contains("returned=true")) and ok
+	ok = _check("the indicator follows a capture too, back to the player",
+		indicator.state() == "player" and indicator.turn_color() == "white") and ok
+	var skipped := await _bot_capture_run(session, board, panel, true)
+	ok = _check("a skipped opponent capture ends exactly where the unskipped one does: %s"
+		% skipped, skipped == full) and ok
+
+	var settled := session.fen()
+	for i in 5:
+		await tree.process_frame
+	ok = _check("the opponent moves once per turn and then waits",
+		session.fen() == settled and session.turn() == "white"
+		and not session.is_frozen()) and ok
+
+	# It answers a move; it does not wake up on a position.
+	session.load_fen(BOT_MVV_FEN)
+	var loaded := session.fen()
+	for i in 5:
+		await tree.process_frame
+	ok = _check("the opponent never moves on its own, only in answer to a move",
+		session.fen() == loaded and not session.is_frozen()) and ok
+
+	# The player mates: the opponent has no turn to take, and the ending speaks.
+	session.load_fen(BACK_RANK_MATE_FEN)
+	ok = _check("the mating move plays", session.play_move("a1a8")) and ok
+	ok = _check("the game is over and the opponent played nothing",
+		session.is_over() and session.fen().split(" ")[0] == "R5k1/5ppp/8/8/8/8/8/4K3") and ok
+	ok = _check("a finished game does not leave input frozen",
+		not session.is_frozen()) and ok
+	ok = _check("the indicator goes silent and lets the banner speak",
+		indicator.state() == "over" and not indicator.visible and banner.visible) and ok
+
+	# Wired to a colour that is not to move it plays nothing, rather than
+	# playing the player's move for them.
+	bot.color = "white"
+	session.load_fen(BOT_CAPTURE_FEN)
+	session.play_move("f3f4")
+	ok = _check("the opponent does not move when it is not its turn",
+		not session.is_frozen() and session.turn() == "black"
+		and session.fen().split(" ")[0] == "4k3/8/8/4n3/5P2/3Q4/8/4K3") and ok
+	bot.color = "black"
+
+	main.free()
+	return ok
+
+
+# Samples is_frozen() every frame from a commit until the opponent's turn is
+# over, and returns how many times input came back. Two is the flicker the
+# opponent spec forbids: a gap between the player's move and the reply.
+func _watch_freeze(session: GameSession, max_frames := 900) -> int:
+	var thaws := 0
+	var was_frozen := session.is_frozen()
+	var frames := 0
+	while frames < max_frames:
+		var frozen := session.is_frozen()
+		if was_frozen and not frozen:
+			thaws += 1
+		was_frozen = frozen
+		if not frozen and session.turn() == "white":
+			break
+		await tree.process_frame
+		frames += 1
+	return thaws
+
+
+# White plays a quiet move into a hanging queen; the opponent takes it. `skip`
+# cuts the clash short the moment it is up, which is the one thing a child does
+# to an opponent's clash that they cannot do to their own.
+func _bot_capture_run(session: GameSession, board: BoardView, panel: Node, skip: bool) -> String:
+	session.load_fen(BOT_CAPTURE_FEN)
+	session.play_move("f3f4")
+	if skip:
+		var frames := 0
+		while not panel.is_clashing() and frames < 300:
+			await tree.process_frame
+			frames += 1
+		panel.finish_now("test")
+	var returned := await _await_unfrozen(session)
+	return "returned=%s %s" % [returned, _rest_state(session, board, panel)]
+
+
 # Skip fired at every 10 ms across the whole clash, every run compared against
 # one that was allowed to finish. No run waits out its own offset: play_move()
 # already takes the moment the tap landed, so a tap timestamped N seconds in the
@@ -696,44 +1104,76 @@ func _run_skip_offsets() -> bool:
 	tree.root.add_child(main)
 	await tree.process_frame
 	await tree.process_frame
+	# And here, where an opponent answering every one of the sweep's runs would
+	# be a second clash inside the run being measured.
+	main.get_node("Session").bot = null
 
 	var session: GameSession = main.get_node("Session")
 	var board: BoardView = main.get_node("Board")
 	var panel: Node = main.get_node("DuelPanel")
 
+	# Both bespoke clashes, each swept to its own length. The pawn one is not
+	# optional coverage: _play_capture() plays 1.e4 d5 2.exd5, so the moment the
+	# pawn got a clash of its own this sweep moved onto the pounce and the charge
+	# would have lost the only skip coverage it ever had, silently, from a green
+	# suite.
+	ok = await _sweep_clash(session, board, panel, "pawn", _play_capture) and ok
+	ok = await _sweep_clash(session, board, panel, "knight", _play_knight_capture) and ok
+
+	main.free()
+	return ok
+
+
+# One clash, swept end to end. The bound is the clash's own length out of the
+# lookup rather than a single panel constant, because the two clashes are
+# deliberately different lengths.
+func _sweep_clash(session: GameSession, board: BoardView, panel: Node,
+		attacker_type: String, play: Callable) -> bool:
+	var ok := true
+	var chosen: Dictionary = DuelPanelScript.clash_for(attacker_type)
+	var clash_name := String(chosen["name"])
+	var length := float(chosen["duration"])
+
 	var start_msec := Time.get_ticks_msec()
-	var unskipped := await _capture_run(session, board, panel, -1.0)
-	print("unskipped clash rest state: %s" % unskipped)
-	ok = _check("the unskipped clash ends with input back and nothing left on the stage",
+	var unskipped := await _capture_run(session, board, panel, -1.0, play)
+	print("unskipped %s rest state: %s" % [clash_name, unskipped])
+	ok = _check("the unskipped %s ends with input back and nothing left on the stage" % clash_name,
 		unskipped.contains("frozen=false") and unskipped.contains("clashing=false")
 		and unskipped.contains("time_scale=1.000") and unskipped.contains("mask_w=0.0")
 		and unskipped.contains("stage=(0.0, 0.0)") and unskipped.contains("burst_a=0.000")
 		and unskipped.contains("white_debris=0") and unskipped.contains("black_debris=0")) and ok
+	# The pounce lifts, tilts, squashes and pulls the attacker in front of the
+	# defender, so "back where it started" is a whole transform plus a draw
+	# order. The mirror is asserted by its sign: an absolute Vector2 squash would
+	# have unmirrored the skeleton and left it facing away.
+	ok = _check("and with both figures back on the ground, upright, unsquashed and in draw order, black still mirrored",
+		unskipped.contains("white_pos=(252.0, 1115.0)") and unskipped.contains("white_rot=0.000")
+		and unskipped.contains("white_scale=(0.714, 0.714)") and unskipped.contains("white_z=0")
+		and unskipped.contains("black_pos=(810.0, 1115.0)") and unskipped.contains("black_rot=0.000")
+		and unskipped.contains("black_scale=(-0.714, 0.714)") and unskipped.contains("black_z=0")) and ok
 
 	var fired := 0
 	var diverged := PackedStringArray()
 	var offset := 0.0
-	while offset <= DuelPanelScript.CLASH_LENGTH + SKIP_EPSILON:
-		var state := await _capture_run(session, board, panel, offset)
+	while offset <= length + SKIP_EPSILON:
+		var state := await _capture_run(session, board, panel, offset, play)
 		fired += 1
 		if state != unskipped:
 			diverged.append("%.2fs(%s)" % [offset, state])
 		offset += SKIP_STEP_SEC
 	var elapsed_sec := (Time.get_ticks_msec() - start_msec) / 1000.0
 
-	print("skip offsets: %d fired every %.0fms across the whole %.2fs clash, %.1fs"
-		% [fired, SKIP_STEP_SEC * 1000.0, DuelPanelScript.CLASH_LENGTH, elapsed_sec])
-	ok = _check("the offsets covered the clash end to end",
-		fired >= int(DuelPanelScript.CLASH_LENGTH / SKIP_STEP_SEC) + 1) and ok
-	ok = _check("a skip at any offset leaves exactly what the unskipped clash leaves: %s"
-		% " ".join(diverged), diverged.is_empty()) and ok
-
-	main.free()
+	print("skip offsets (%s): %d fired every %.0fms across the whole %.2fs clash, %.1fs"
+		% [clash_name, fired, SKIP_STEP_SEC * 1000.0, length, elapsed_sec])
+	ok = _check("the offsets covered the %s end to end" % clash_name,
+		fired >= int(length / SKIP_STEP_SEC) + 1) and ok
+	ok = _check("a skip at any offset of the %s leaves exactly what the unskipped one leaves: %s"
+		% [clash_name, " ".join(diverged)], diverged.is_empty()) and ok
 	return ok
 
 
-# 1.e4 d5 2.exd5 -- three moves from a fresh game to a capture, so every run in
-# the skip sweep starts from the same place.
+# 1.e4 d5 2.exd5 -- three moves from a fresh game to a pawn capture, so every run
+# in the sweep starts from the same place. This is the pounce.
 func _play_capture(session: GameSession, tap_usec := 0) -> void:
 	session.restart()
 	session.play_move("e2e4")
@@ -741,14 +1181,23 @@ func _play_capture(session: GameSession, tap_usec := 0) -> void:
 	session.play_move("e4d5", tap_usec)
 
 
+# 1.Nf3 e5 2.Nxe5 -- the same shape taken by a knight, which is the charge.
+func _play_knight_capture(session: GameSession, tap_usec := 0) -> void:
+	session.restart()
+	session.play_move("g1f3")
+	session.play_move("e7e5")
+	session.play_move("f3e5", tap_usec)
+
+
 # One capture, skipped `offset` seconds in, or allowed to run in full when
 # `offset` is negative. Returns everything a skip could leave behind, as one
 # string, so a divergence names itself.
-func _capture_run(session: GameSession, board: BoardView, panel: Node, offset: float) -> String:
+func _capture_run(session: GameSession, board: BoardView, panel: Node, offset: float,
+		play: Callable) -> String:
 	var tap_usec := 0
 	if offset > 0.0:
 		tap_usec = Time.get_ticks_usec() - int(offset * 1_000_000.0)
-	_play_capture(session, tap_usec)
+	play.call(session, tap_usec)
 	if offset >= 0.0:
 		panel.finish_now("test")
 	var returned := await _await_unfrozen(session)
@@ -788,14 +1237,22 @@ func _rest_state(session: GameSession, board: BoardView, panel: Node) -> String:
 # The detached head is the one piece of debris with a life of its own: it is a
 # duplicate sprite parented to the rig, so anything left flying shows up here as
 # a child that should not be there.
+#
+# The whole transform, not just x. Until the pounce there was nothing that moved
+# a figure off the floor, so position.x alone was the whole story; a leap that
+# was cut short mid-air, tilted or squashed would have passed the skip sweep
+# without a word. rotation and scale are here for the same reason -- and scale
+# especially, because a squash written as an absolute Vector2 rather than as a
+# factor of the authored one silently unmirrors the skeleton.
 func _rig_state(label: String, rig: CharacterRig) -> String:
 	var debris := 0
 	for child in rig.get_children():
 		if String(child.name).ends_with("Duplicate") and not child.is_queued_for_deletion():
 			debris += 1
 	var anim: AnimationPlayer = rig.get_node("AnimationPlayer")
-	return "%s_x=%.1f %s_anim=%s %s_debris=%d" % [
-		label, rig.position.x, label, anim.current_animation, label, debris]
+	return "%s_pos=%s %s_rot=%.3f %s_scale=%s %s_z=%d %s_anim=%s %s_debris=%d" % [
+		label, rig.position, label, rig.rotation, label, rig.scale,
+		label, rig.z_index, label, anim.current_animation, label, debris]
 
 
 # Two hundred random legal games with the clash stubbed to zero duration,
