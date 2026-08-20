@@ -62,19 +62,19 @@ grow_vertical=2
 mouse_filter = 2
 script=ExtResource("6_banner")
 
+; Top-left, in the 180 px strip left of white's commander. Both margins are
+; composed now -- commander, turn indicator, graveyard down the left and
+; graveyard, commander down the right -- and every other corner is occupied by
+; something a player is meant to read. It was bottom-right and then bottom-left,
+; and each of those landed on top of one: the restart button, then the fourth
+; row of white's graveyard. Neither failed a check; both were obvious in a frame.
 [node name="DebugButton" type="Button" parent="."]
 layout_mode = 1
-anchors_preset = 3
-anchor_left = 1.0
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 0
-grow_vertical = 0
-offset_left = -224.0
-offset_top = -104.0
-offset_right = -24.0
-offset_bottom = -24.0
+anchors_preset = 0
+offset_left = 10.0
+offset_top = 14.0
+offset_right = 90.0
+offset_bottom = 70.0
 text = "Duel"
 
 [connection signal="pressed" from="DebugButton" to="DuelPanel" method="play"]

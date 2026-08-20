@@ -21,7 +21,7 @@ extends SceneTree
 const SUITE_PATH := "res://tests/suite.gd"
 ## Raise this with the suite. A run that comes back with fewer checks than the
 ## suite is known to contain has lost some of them somewhere that did not fail.
-const MIN_CHECKS := 184
+const MIN_CHECKS := 209
 
 
 func _initialize() -> void:

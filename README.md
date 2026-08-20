@@ -94,7 +94,7 @@ Each of those is a decision with a reason, not a "later" — see
 Known and accepted limitations of the prototype itself: **the bot plays badly on purpose** (it
 is a one-ply capture-greedy scan, chosen because a capture-hungry opponent generates more of
 the thing under test — see [ADR-0005](docs/adr/0005-capture-greedy-bot-not-a-real-engine.md)),
-there is no save or resume, and it is Android portrait only.
+there is no save or resume, and it is Android landscape only.
 
 ## Measured performance
 
@@ -131,7 +131,7 @@ between this table and the last one, and the duel panel still does not give its 
 closes.
 
 Measured on: **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`), MediaTek Helio G99, Mali-G57 MC2,
-1080x2400, Android 16 (SDK 36), arm64-v8a. Its GPU is a step above the Snapdragon 680 /
+2400x1080 landscape, Android 16 (SDK 36), arm64-v8a. Its GPU is a step above the Snapdragon 680 /
 Adreno 610 class the budgets above were written against, so numbers measured on it are
 optimistic — the budgets themselves are unchanged.
 
@@ -168,9 +168,10 @@ godot --rendering-driver opengl3 --script tests/render_board_states.gd -- /tmp/p
 Like `tests/render_board_pieces.gd` it needs a real window and the OpenGL driver, not
 `--headless`.
 
-The build carries a **Duel** button in the bottom-right corner that plays the clash without a
-capture. On the 1080×2400 device that is `adb shell input tap 956 2336` — it sits well below the
-board, so it cannot select a piece by accident. Everything the app reports on device is a
+The build carries a **Duel** button in the top-left corner that plays the clash without a
+capture. On the 2400×1080 device that is `adb shell input tap 50 42` — it sits in the strip beside
+the board, so it cannot select a piece by accident. A board square's centre is
+`x = 660 + file_index*135 + 68`, `y = (8 - rank)*135 + 68`, with `file_index` 0 for the a-file. Everything the app reports on device is a
 `PAWNCH_` line in logcat: `PAWNCH_READY` (board interactive), `PAWNCH_MOVE`, `PAWNCH_CLASH`
 (the FEN before and after a clash), `PAWNCH_CUE` (clash beat times) and `PAWNCH_FRAME`.
 `adb exec-out screencap` returns a stale frame on this device — capture anything moving with

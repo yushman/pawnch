@@ -1,0 +1,51 @@
+# The suite on every push. Failure mode 3 in docs/system-analysis.md -- a capture
+# that resolves to no clash and takes a piece off the board with no animation and
+# no error -- is caught by a check that only helps on the day someone remembers to
+# run it, which is why this exists.
+#
+# Deliberately narrow: no Android SDK, no device, no emulator, no network for the
+# app under test. The APK build, tools/check_no_internet.sh and the frame-timing
+# ritual all need hardware this runner does not have, and pretending otherwise
+# would make a green tick mean less than it does. What this proves is exactly the
+# suite: chess correctness by perft, board/rules agreement over 200 random games,
+# skip safety across three clashes, and that all six attacker types resolve to a
+# clash of non-zero duration.
+name: suite
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    env:
+      # The version the project is on. project.godot declares config/features
+      # "4.7"; a runner on an older engine would fail to open the scenes at all.
+      GODOT_VERSION: 4.7.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Godot ${{ env.GODOT_VERSION }}
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download"
+          FILE="Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          curl -fsSL -o godot.zip "$BASE/${GODOT_VERSION}-stable/${FILE}.zip"
+          unzip -q godot.zip
+          mkdir -p "$HOME/.local/bin"
+          mv "$FILE" "$HOME/.local/bin/godot"
+          chmod +x "$HOME/.local/bin/godot"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Import
+        # .godot/ is gitignored, so a fresh clone has no import cache and every
+        # load() would come back null without this.
+        run: godot --headless --import
+
+      - name: Run the suite
+        # run_headless.gd exits non-zero on any failed check, on a suite that did
+        # not load, and on a run that reports fewer checks than MIN_CHECKS -- the
+        # last one because Godot exits 0 whatever happens to a --script file, so a
+        # suite that silently ran nothing would otherwise pass.
+        run: godot --headless --script tests/run_headless.gd

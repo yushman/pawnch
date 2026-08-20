@@ -13,6 +13,8 @@ const BoardViewScript = preload("res://scripts/board_view.gd")
 const GameSessionScript = preload("res://scripts/game_session.gd")
 const DuelPanelScript = preload("res://scripts/duel_panel.gd")
 const GreedyBotScript = preload("res://scripts/greedy_bot.gd")
+const TurnIndicatorScript = preload("res://scripts/turn_indicator.gd")
+const GameOverBannerScript = preload("res://scripts/game_over_banner.gd")
 
 const PERFT_EXPECTED := [20, 400, 8902, 197281]
 
@@ -207,21 +209,23 @@ func _run_board_smoke() -> bool:
 	var occupied := board.occupied_squares()
 	ok = _check("board shows exactly the two pieces the FEN describes",
 		occupied == ["d1", "e1"]) and ok
-	# screen_col = rank - 1, screen_row = file index (ADR-0011 decision 1).
-	ok = _check("board puts the queen at screen row 3, col 0",
-		board.screen_cell("d1") == Vector2i(0, 3)) and ok
-	ok = _check("board puts the king at screen row 4, col 0",
-		board.screen_cell("e1") == Vector2i(0, 4)) and ok
+	# screen_col = file index, screen_row = rank_count - rank (ADR-0011 decision 1,
+	# un-rotated on Day 8). Both axes swapped, so both of these had to be rewritten
+	# rather than renumbered -- the old pins passed on a board drawn sideways.
+	ok = _check("board puts the queen at screen row 7, col 3",
+		board.screen_cell("d1") == Vector2i(3, 7)) and ok
+	ok = _check("board puts the king at screen row 7, col 4",
+		board.screen_cell("e1") == Vector2i(4, 7)) and ok
 	ok = _check("board is not reflected: the king is further from the a-file edge",
-		board.screen_cell("e1").y > board.screen_cell("d1").y) and ok
+		board.screen_cell("e1").x > board.screen_cell("d1").x) and ok
 
 	var full: BoardView = BoardViewScript.new()
 	full.set_position_from_fen(START_FEN)
 	ok = _check("board shows 32 pieces from the opening",
 		full.occupied_squares().size() == 32) and ok
-	ok = _check("board size is 1080x1360", full.board_size() == Vector2(1080, 1360)) and ok
-	ok = _check("board corners are a1 top-left and h8 bottom-right",
-		full.screen_cell("a1") == Vector2i(0, 0) and full.screen_cell("h8") == Vector2i(7, 7)) and ok
+	ok = _check("board size is 1080x1080", full.board_size() == Vector2(1080, 1080)) and ok
+	ok = _check("board corners are a8 top-left and h1 bottom-right",
+		full.screen_cell("a8") == Vector2i(0, 0) and full.screen_cell("h1") == Vector2i(7, 7)) and ok
 	ok = _check("a1 is dark and h1 is light",
 		not full.square_is_light("a1") and full.square_is_light("h1")) and ok
 
@@ -230,7 +234,87 @@ func _run_board_smoke() -> bool:
 	small.rank_count = 4
 	small.set_position_from_fen("4/4/4/RQKR w - - 0 1")
 	ok = _check("board accepts non-8x8 dimensions",
-		small.occupied_squares().size() == 4 and small.board_size() == Vector2(540, 680)) and ok
+		small.occupied_squares().size() == 4 and small.board_size() == Vector2(540, 540)) and ok
+
+	# The margins, which are half the screen since the landscape flip and had no
+	# check at all until they carried something. Everything in them is placed by
+	# arithmetic off board_origin(), so one wrong sign puts a graveyard on the
+	# board and nothing else notices -- the Duel button landed on white's fourth
+	# row exactly this way, and it took a screenshot to see.
+	full.size = Vector2(2400, 1080)
+	var margin := full.board_origin().x
+	var board_rect := Rect2(full.board_origin(), full.board_size())
+	var boxes := {}
+	for color in ["white", "black"]:
+		boxes["%s grave" % color] = Rect2(full.graveyard_origin(color),
+			Vector2(BoardViewScript.GRAVE_COLUMNS, BoardViewScript.GRAVE_ROWS)
+				* BoardViewScript.GRAVE_CELL)
+		boxes["%s hero" % color] = Rect2(full.hero_origin(color), BoardViewScript.HERO_CELL)
+	boxes["turn indicator"] = TurnIndicatorScript.PANEL
+	boxes["game-over banner"] = GameOverBannerScript.PANEL
+	boxes["restart button"] = Rect2(
+		GameOverBannerScript.RESTART_CENTER - Vector2.ONE * GameOverBannerScript.RESTART_TOUCH,
+		Vector2.ONE * GameOverBannerScript.RESTART_TOUCH * 2.0)
+	var spills := PackedStringArray()
+	for name: String in boxes:
+		var box: Rect2 = boxes[name]
+		if box.intersects(board_rect) or box.position.x < 0.0 or box.position.y < 0.0 \
+				or box.end.x > full.size.x or box.end.y > full.size.y:
+			spills.append("%s%s" % [name, box])
+	ok = _check("nothing in the two margins touches the board or leaves the screen: %s"
+		% " ".join(spills), spills.is_empty()) and ok
+	ok = _check("each margin holds every piece its army can lose (%d slots, 15 needed)"
+		% (BoardViewScript.GRAVE_COLUMNS * BoardViewScript.GRAVE_ROWS),
+		BoardViewScript.GRAVE_COLUMNS * BoardViewScript.GRAVE_ROWS >= 15) and ok
+	# White's dead sit low and black's high, echoing the board -- that echo is the
+	# only thing on screen tying "the left margin is white's" to a board where
+	# white is at the bottom (ADR-0011 decision 5).
+	ok = _check("white's losses sit low and black's high, each in its own colour's margin",
+		full.graveyard_origin("white").y > full.graveyard_origin("black").y
+		and full.graveyard_origin("white").x < margin
+		and full.graveyard_origin("black").x > margin) and ok
+	# The commander carries that echo harder than the graveyard does, because it
+	# is the army's face -- and for one day it was placed at the *opposite* end of
+	# the margin from its own dead, which put white's commander at the top of the
+	# left band level with black's army and black's at the bottom level with
+	# white's. Each colour's pair is anchored to its own end of the band, and the
+	# two of them are adjacent rather than opposite.
+	var blocks := {}
+	for color in ["white", "black"]:
+		blocks[color] = (boxes["%s grave" % color] as Rect2).merge(boxes["%s hero" % color])
+	ok = _check("and each commander stands with its own dead, at its own colour's end of the margin (white %s, black %s)"
+		% [blocks["white"], blocks["black"]],
+		blocks["white"].end.y == full.size.y - BoardViewScript.MARGIN_PAD
+		and blocks["black"].position.y == BoardViewScript.MARGIN_PAD
+		and full.hero_origin("white").y < full.graveyard_origin("white").y
+		and full.hero_origin("black").y > full.graveyard_origin("black").y) and ok
+	# Everything a margin carries at once is disjoint. The banner is the one thing
+	# that overlaps by design, so it is not in this list -- what it may cover is
+	# the check after this one, not an exception to this one.
+	var permanent := ["white grave", "white hero", "black grave", "black hero", "turn indicator"]
+	var overlaps := PackedStringArray()
+	for i in permanent.size():
+		for j in range(i + 1, permanent.size()):
+			if (boxes[permanent[i]] as Rect2).intersects(boxes[permanent[j]]):
+				overlaps.append("%s/%s" % [permanent[i], permanent[j]])
+	ok = _check("nothing standing in a margin overlaps anything else standing in it: %s"
+		% " ".join(overlaps), overlaps.is_empty()) and ok
+	ok = _check("and the game-over banner covers whole the two things it is allowed to cover, and neither graveyard",
+		(boxes["game-over banner"] as Rect2).encloses(boxes["turn indicator"])
+		and (boxes["game-over banner"] as Rect2).encloses(boxes["white hero"])
+		and not (boxes["game-over banner"] as Rect2).intersects(boxes["white grave"])
+		and not (boxes["game-over banner"] as Rect2).intersects(boxes["black grave"])) and ok
+	# Derived from the position, never tallied: an untouched board has lost
+	# nothing, and a board with material missing reports exactly what is missing.
+	ok = _check("an untouched board has an empty graveyard on both sides",
+		full.captured("white").is_empty() and full.captured("black").is_empty()) and ok
+	var stripped: BoardView = BoardViewScript.new()
+	stripped.set_position_from_fen("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1")
+	ok = _check("and one stripped to two kings and a pawn reports 15 and 14 losses, most valuable first",
+		stripped.captured("black").size() == 15 and stripped.captured("white").size() == 14
+		and stripped.captured("white")[0] == "queen"
+		and stripped.captured("white")[-1] == "pawn") and ok
+	stripped.free()
 
 	board.free()
 	full.free()
@@ -243,7 +327,7 @@ func _run_board_smoke() -> bool:
 # probed at its centre and at all four of its corners.
 func _run_hit_test() -> bool:
 	var board: BoardView = BoardViewScript.new()
-	board.size = Vector2(1080, 2400)
+	board.size = Vector2(2400, 1080)
 	board.set_position_from_fen(START_FEN)
 
 	var checked := 0
@@ -262,8 +346,23 @@ func _run_hit_test() -> bool:
 
 	var ok := _check("hit test round-trips all 64 cells (%d probes): %s"
 		% [checked, "" if wrong.is_empty() else " ".join(wrong)], wrong.is_empty())
-	ok = _check("a tap off the board resolves to no square",
-		board.square_at(Vector2(-1, -1)) == "" and board.square_at(Vector2(2000, 2000)) == "") and ok
+	# The margins are new since the flip and they are half the screen: a tap in
+	# one of them has to miss the board, not land on the nearest file. Probed at
+	# the middle of each band and one pixel either side of the board's own edge,
+	# because "beside the board" is where an off-by-one in board_origin() shows.
+	var edge := board.board_origin().x
+	var beside := [
+		Vector2(-1, -1), Vector2(2000, 2000),
+		Vector2(edge * 0.5, 540), Vector2(edge - 1, 540),
+		Vector2(edge + board.board_size().x, 540), Vector2(2100, 540),
+		Vector2(540, 900),
+	]
+	var hits := PackedStringArray()
+	for probe: Vector2 in beside:
+		if board.square_at(probe) != "":
+			hits.append("%s->%s" % [probe, board.square_at(probe)])
+	ok = _check("a tap beside the board resolves to no square: %s" % " ".join(hits),
+		hits.is_empty()) and ok
 	board.free()
 	return ok
 
@@ -719,23 +818,45 @@ func _run_clash_lookup() -> bool:
 	ok = _check("a type the table has never heard of falls back rather than returning nothing",
 		bool(unknown["fallback"]) and float(unknown["duration"]) > 0.0) and ok
 
-	# This replaces "every type takes the fallback today", which was written to
-	# start failing on exactly the day a type got a clash of its own. What has to
-	# stay true is not that the table is empty -- it is that filling it in cannot
-	# weaken the guarantee above for the types still waiting.
-	var authored := PackedStringArray()
+	# Day 7 replaced two checks here that were written to start failing on exactly
+	# the day a type got a clash of its own -- "the pawn and the knight have
+	# clashes of their own, and only those two do", and "the other four take the
+	# fallback" -- and both duly did. Naming which rows the table has is not the
+	# guarantee; the guarantee is that filling it in cannot weaken the one above
+	# for the types still waiting, and that is what is checked instead.
+	var named := PackedStringArray()
 	var fell_back := PackedStringArray()
 	for type: String in DuelPanelScript.PIECE_TYPES:
 		if bool(DuelPanelScript.clash_for(type)["fallback"]):
 			fell_back.append(type)
 		else:
-			authored.append(type)
-	ok = _check("the pawn and the knight have clashes of their own, and only those two do: %s"
-		% " ".join(authored), Array(authored) == ["pawn", "knight"]) and ok
-	ok = _check("the other four still take the fallback, until Day 7 authors the generic strike: %s"
-		% " ".join(fell_back), fell_back.size() == 4) and ok
+			named.append(String(DuelPanelScript.CLASH_BY_TYPE[type]))
+	var missing := PackedStringArray()
+	for clash_name in named:
+		if not DuelPanelScript.CLASH_BEATS.has(clash_name):
+			missing.append(clash_name)
+	ok = _check("every clash the table names is a clash that has beats: %s" % " ".join(missing),
+		missing.is_empty()) and ok
+	var silent := PackedStringArray()
+	for type in fell_back:
+		if float(DuelPanelScript.clash_for(type)["duration"]) <= 0.0:
+			silent.append(type)
+	ok = _check("the types the table does not name still get a real clash (%s): %s"
+		% [" ".join(fell_back), " ".join(silent)],
+		not fell_back.is_empty() and silent.is_empty()) and ok
 	ok = _check("and the fallback they take is a clash that actually exists",
 		DuelPanelScript.CLASH_BEATS.has(DuelPanelScript.FALLBACK_CLASH)) and ok
+
+	# Three clashes now, and the rule that made the pounce shorter than the charge
+	# is not a rule about two: two clashes of one length read as one clash however
+	# differently they are staged, and so do three.
+	var same := PackedStringArray()
+	for a: String in DuelPanelScript.CLASH_BEATS:
+		for b: String in DuelPanelScript.CLASH_BEATS:
+			if a < b and absf(DuelPanelScript.clash_length(a) - DuelPanelScript.clash_length(b)) <= 0.05:
+				same.append("%s/%s" % [a, b])
+	ok = _check("the three clashes run for three different lengths: %s" % " ".join(same),
+		DuelPanelScript.CLASH_BEATS.size() == 3 and same.is_empty()) and ok
 
 	var pawn: Dictionary = DuelPanelScript.clash_for("pawn")
 	var knight: Dictionary = DuelPanelScript.clash_for("knight")
@@ -765,9 +886,96 @@ func _run_clash_lookup() -> bool:
 		and float(pounce["dive"]) < float(pounce["impact"])) and ok
 	# The z-lift is engaged on the dive, so nothing before it may be close
 	# enough for draw order to hide the defender behind the attacker.
-	ok = _check("the apex sits a rig's width further back than the strike (%.0fpx vs %.0fpx), so the attacker never covers the defender on the way in"
+	# Was `>= POUNCE_GAP + 200.0`, and Day 8 found the 200 wrong on its own terms
+	# rather than merely failing: it is a clearance between two rig silhouettes,
+	# so it is a figure-relative quantity that had been written down in panel
+	# pixels at one particular mount scale. Restaging the panel made it a
+	# threshold about nothing. Both gaps scale with the figures, so their ratio
+	# is the invariant that was always meant -- and unlike the old form, it
+	# cannot go stale the next time the mount scale moves.
+	ok = _check("the apex sits about twice as far back as the strike does (%.0fpx vs %.0fpx), so the attacker never covers the defender on the way in"
 		% [DuelPanelScript.POUNCE_APEX_GAP, DuelPanelScript.POUNCE_GAP],
-		DuelPanelScript.POUNCE_APEX_GAP >= DuelPanelScript.POUNCE_GAP + 200.0) and ok
+		DuelPanelScript.POUNCE_APEX_GAP >= DuelPanelScript.POUNCE_GAP * 1.9) and ok
+
+	# Day 7's strike. It is the clash a session sees most -- 19 of Day 6's 24
+	# clashes were made by types that now land here -- so the numbers that make it
+	# a third fight rather than a shortened charge are pinned, the same way the
+	# pounce's are.
+	var strike: Dictionary = DuelPanelScript.CLASH_BEATS["strike"]
+	var rook: Dictionary = DuelPanelScript.clash_for("rook")
+	var queen: Dictionary = DuelPanelScript.clash_for("queen")
+	ok = _check("the rook, the bishop and the king all play the strike",
+		String(rook["name"]) == "strike"
+		and String(DuelPanelScript.clash_for("bishop")["name"]) == "strike"
+		and String(DuelPanelScript.clash_for("king")["name"]) == "strike") and ok
+	ok = _check("the queen is the one type left to the fallback, and the fallback is the strike too",
+		bool(queen["fallback"]) and String(queen["name"]) == "strike"
+		and Array(fell_back) == ["queen"]) and ok
+	ok = _check("the strike is the shortest of the three (%.2fs), because it is the one seen twenty times a session"
+		% float(rook["duration"]),
+		float(rook["duration"]) < float(pawn["duration"])
+		and float(rook["duration"]) < float(knight["duration"])) and ok
+	ok = _check("and it stays inside the 2.0s budget with its impact inside the first 0.6s (%.2fs)"
+		% float(strike["impact"]),
+		float(rook["duration"]) <= 2.0 and float(strike["impact"]) <= 0.6) and ok
+	ok = _check("it gathers, raises, hits, knocks the defender back and only then recoils, in that order",
+		float(strike["gather"]) < float(strike["raise"])
+		and float(strike["raise"]) < float(strike["impact"])
+		and float(strike["impact"]) < float(strike["knock"])
+		and float(strike["knock"]) <= float(strike["recoil"])) and ok
+	# The raise is the beat that makes the clash vertical: the attacker's x does
+	# not move across it, so a tune that shortens it turns the strike back into a
+	# short charge without failing anything else.
+	ok = _check("it spends %.2fs of its %.2fs before impact going nowhere horizontally"
+		% [float(strike["raise"]) - float(strike["gather"]), float(strike["impact"])],
+		float(strike["raise"]) - float(strike["gather"]) >= 0.20) and ok
+	# The pounce needed a z-lift because it closed to 215px; the strike closes to
+	# less than the charge does, so draw order cannot hide the defender behind the
+	# attacker and no lift is engaged anywhere in _run_strike().
+	ok = _check("and it lands from further out than the charge (%.0fpx vs %.0fpx), so it needs no z-lift to keep the defender visible"
+		% [DuelPanelScript.STRIKE_GAP, DuelPanelScript.CHARGE_GAP],
+		DuelPanelScript.STRIKE_GAP >= DuelPanelScript.CHARGE_GAP) and ok
+	# The one thing no other clash does, and the reason the strike gets a skip
+	# sweep of its own: it moves the defender.
+	ok = _check("the defender is driven back and keeps most of that ground when it settles (%.0fpx, giving back %.0fpx)"
+		% [DuelPanelScript.STRIKE_KNOCKBACK, DuelPanelScript.STRIKE_RECOVER],
+		DuelPanelScript.STRIKE_KNOCKBACK > 0.0
+		and DuelPanelScript.STRIKE_RECOVER < DuelPanelScript.STRIKE_KNOCKBACK) and ok
+	# Every wait in a beat function is polled off the wall clock while the tweens
+	# run on the engine clock, so a hitstop longer than the beat it sits inside
+	# would make a tween's duration negative and the knockback would snap.
+	ok = _check("and its hitstop (%.2fs) fits inside the beat that follows it"
+		% DuelPanelScript.STRIKE_HITSTOP,
+		DuelPanelScript.STRIKE_HITSTOP < float(strike["knock"]) - float(strike["impact"])) and ok
+
+	# The framing, which had no check at all until the landscape flip and needed
+	# one the moment both of its axes changed meaning. frame_rect_for() exists to
+	# be callable without the project's stretch/aspect setup, so this is the whole
+	# of it: a viewport size in, a panel rect out.
+	#
+	# The property being pinned is not the numbers, it is that **the panel is the
+	# same rectangle at every supported aspect** -- that is what "the framing
+	# survives the 16:9-20:9 range without re-composing" means, and it is what
+	# every staging constant in duel_panel.gd assumes when it is written in panel
+	# pixels rather than as a fraction.
+	var narrow := DuelPanelScript.frame_rect_for(Vector2(1920, 1080))  # 16:9
+	var target := DuelPanelScript.frame_rect_for(Vector2(2400, 1080))  # 20:9, the device
+	ok = _check("the duel panel is the same size at 16:9 and at 20:9 (%s vs %s)"
+		% [narrow.size, target.size],
+		narrow.size == target.size and narrow.size == DuelPanelScript.PANEL_SIZE) and ok
+	ok = _check("it fills the short edge and is centred on the long one (%s)" % target,
+		target.size.y == 1080.0 and target.position.y == 0.0
+		and is_equal_approx(target.position.x, (2400.0 - target.size.x) * 0.5)) and ok
+	# Getting `window/stretch/aspect` backwards is the failure this catches: it
+	# letterboxes rather than erroring, and a panel wider than the viewport is
+	# what that looks like from in here.
+	var spills := PackedStringArray()
+	for width in [1920, 2000, 2160, 2340, 2400]:
+		var r: Rect2 = DuelPanelScript.frame_rect_for(Vector2(width, 1080))
+		if r.position.x < 0.0 or r.end.x > float(width) or r.position.y < 0.0 or r.end.y > 1080.0:
+			spills.append("%d(%s)" % [width, r])
+	ok = _check("and it never spills past the viewport anywhere in the supported range: %s"
+		% " ".join(spills), spills.is_empty()) and ok
 	return ok
 
 
@@ -1112,13 +1320,19 @@ func _run_skip_offsets() -> bool:
 	var board: BoardView = main.get_node("Board")
 	var panel: Node = main.get_node("DuelPanel")
 
-	# Both bespoke clashes, each swept to its own length. The pawn one is not
+	# All three clashes, each swept to its own length. The pawn one is not
 	# optional coverage: _play_capture() plays 1.e4 d5 2.exd5, so the moment the
 	# pawn got a clash of its own this sweep moved onto the pounce and the charge
 	# would have lost the only skip coverage it ever had, silently, from a green
 	# suite.
+	#
+	# The bishop's is not a third helping of the same thing either. The strike is
+	# the first clash that moves the *defender*, so it is the first whose skip can
+	# leave the defender somewhere wrong -- new failure surface, and this is what
+	# covers it. ~4s of suite time.
 	ok = await _sweep_clash(session, board, panel, "pawn", _play_capture) and ok
 	ok = await _sweep_clash(session, board, panel, "knight", _play_knight_capture) and ok
+	ok = await _sweep_clash(session, board, panel, "bishop", _play_bishop_capture) and ok
 
 	main.free()
 	return ok
@@ -1147,10 +1361,10 @@ func _sweep_clash(session: GameSession, board: BoardView, panel: Node,
 	# order. The mirror is asserted by its sign: an absolute Vector2 squash would
 	# have unmirrored the skeleton and left it facing away.
 	ok = _check("and with both figures back on the ground, upright, unsquashed and in draw order, black still mirrored",
-		unskipped.contains("white_pos=(252.0, 1115.0)") and unskipped.contains("white_rot=0.000")
-		and unskipped.contains("white_scale=(0.714, 0.714)") and unskipped.contains("white_z=0")
-		and unskipped.contains("black_pos=(810.0, 1115.0)") and unskipped.contains("black_rot=0.000")
-		and unskipped.contains("black_scale=(-0.714, 0.714)") and unskipped.contains("black_z=0")) and ok
+		unskipped.contains("white_pos=(483.0, 930.0)") and unskipped.contains("white_rot=0.000")
+		and unskipped.contains("white_scale=(0.52, 0.52)") and unskipped.contains("white_z=0")
+		and unskipped.contains("black_pos=(893.0, 930.0)") and unskipped.contains("black_rot=0.000")
+		and unskipped.contains("black_scale=(-0.52, 0.52)") and unskipped.contains("black_z=0")) and ok
 
 	var fired := 0
 	var diverged := PackedStringArray()
@@ -1189,6 +1403,18 @@ func _play_knight_capture(session: GameSession, tap_usec := 0) -> void:
 	session.play_move("f3e5", tap_usec)
 
 
+# 1.e4 d5 2.Bb5+ c6 3.Bxc6 -- five moves rather than three, because a bishop
+# cannot reach anything worth taking in fewer: the check on move 2 is what forces
+# c7-c6 into range. This is the strike.
+func _play_bishop_capture(session: GameSession, tap_usec := 0) -> void:
+	session.restart()
+	session.play_move("e2e4")
+	session.play_move("d7d5")
+	session.play_move("f1b5")
+	session.play_move("c7c6")
+	session.play_move("b5c6", tap_usec)
+
+
 # One capture, skipped `offset` seconds in, or allowed to run in full when
 # `offset` is negative. Returns everything a skip could leave behind, as one
 # string, so a divergence names itself.
@@ -1221,6 +1447,12 @@ func _rest_state(session: GameSession, board: BoardView, panel: Node) -> String:
 	return " ".join(PackedStringArray([
 		"fen=%s" % session.fen(),
 		"board=%s" % board.placement(),
+		# The margins are board state and a skip can leave them wrong exactly the
+		# way it can leave a figure airborne. Recorded here *before* the graveyard
+		# was written, so the sweep was the thing that had to be satisfied rather
+		# than something adjusted afterwards to agree with it.
+		"graves=%s|%s" % [
+			"".join(board.captured("white")), "".join(board.captured("black"))],
 		"selected=%s" % session.selected(),
 		"frozen=%s" % session.is_frozen(),
 		"clashing=%s" % panel.is_clashing(),

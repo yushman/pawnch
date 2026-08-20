@@ -22,6 +22,7 @@ Craftpix licence: pack art may be shipped and modified but never fed to an
 AI/ML system. This script only rasterises and transcribes it.
 """
 import argparse
+import glob
 import math
 import os
 import re
@@ -51,7 +52,7 @@ ANIMATIONS = ["Idle", "Idle Blinking", "Slashing", "Hurt", "Dying"]
 # with "Idle"), so this has no observable effect today.
 LOOPING = {"Idle", "Idle Blinking"}
 
-CREST_HEIGHT_FRACTION = 0.18  # ADR-0007 decision 8; 0.12 is the hard floor.
+CREST_HEIGHT_FRACTION = 0.25  # ADR-0007 decision 8, top row of its size sweep; 0.12 is the hard floor.
 NODE_NAME_OVERRIDES = {"Face 01": "Face"}
 # The pack keys the Sword's alpha to 0 for Idle (weapon hidden). Skipping that one
 # track leaves the sprite's own `modulate` (the pack's a=0 default) in charge during
@@ -59,6 +60,38 @@ NODE_NAME_OVERRIDES = {"Face 01": "Face"}
 # same mechanism as show_crest, and why the shipped rig can hold the sword while
 # tools/verify_rig.py still compares against the pack's own hidden-sword frames.
 IDLE_WEAPON_ALPHA_SKIP = {("Idle", "Sword", "modulate:a")}
+
+# One weapon per piece type, each from a different Craftpix chibi pack. This is
+# ADR-0007 decision 7's option (b) -- "source more from other Craftpix freebie
+# packs" -- applied to weapons rather than to heads, where it works because
+# weapons differ in outline and the packs' three heads did not (decision 8).
+#
+# Every one of the ten downloaded chibi packs declares its weapon as a 400x128
+# part with pivot (0, 1), byte-identical canvas and pivot to the Sword this
+# replaces. A donor is therefore a pure texture swap: no offset, no scale, no
+# per-type rig adjustment. If one ever seems to need any of those, the donor is
+# wrong, not the rig.
+#
+# The same shape serves both sides -- a child learns one mapping -- so the two
+# families differ only in the raster the same vector source is rendered at. This
+# table is the only place a donor pack is named; change a row and re-run the tool
+# for both families.
+#
+# Excluded and available if a pair fails the 110 px legibility check: the
+# skeleton warrior's falchion, the fallen angel's katana, the reaper's crook. The
+# bloody alchemist's cleaver is excluded on content grounds -- the blade carries
+# blood and this is a game for 6-12 year olds -- and the forest ranger's bow on
+# mechanics: it is a 200x320 part on a different canvas, held differently, and it
+# is the one donor that is not a drop-in.
+WEAPON_DONORS = {
+	"pawn": ("zombie-villager", "knobbly club"),
+	"knight": ("chibi-necromancer-of-the-shadow", "thin spear"),
+	"bishop": ("seer", "staff with a round orb"),
+	"rook": ("chibi-skeleton-crusader", "broad heavy blade"),
+	"queen": ("chibi-dark-oracle", "staff with a flame head"),
+	"king": ("chibi-valkyrie", "cruciform sword"),
+}
+DONOR_PACK_DIR = os.path.expanduser("~/Downloads")
 
 
 # ---------------------------------------------------------------- pack sources
@@ -122,15 +155,67 @@ def rasterise(pack_dir, family, raster, file_names):
 		if not os.path.exists(eps):
 			raise SystemExit("missing vector source %s" % eps)
 		png = os.path.join(out_dir, slug(name) + ".png")
-		subprocess.run([
-			"gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dEPSCrop",
-			"-sDEVICE=pngalpha", "-r%g" % (72 * raster),
-			"-dTextAlphaBits=4", "-dGraphicsAlphaBits=4",
-			"-sOutputFile=" + png, eps,
-		], check=True)
+		gs(eps, png, raster)
 		with Image.open(png) as im:
 			result[name] = ("res://assets/rig/%s/%s" % (family, os.path.basename(png)), *im.size)
 	return result
+
+
+def gs(eps, png, raster):
+	"""EPS -> PNG at `raster` x. 72 dpi is 1:1 with the pack's own vector units."""
+	subprocess.run([
+		"gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dEPSCrop",
+		"-sDEVICE=pngalpha", "-r%g" % (72 * raster),
+		"-dTextAlphaBits=4", "-dGraphicsAlphaBits=4",
+		"-sOutputFile=" + png, eps,
+	], check=True)
+
+
+def rasterise_weapons(family, raster, packs_dir, workdir):
+	"""The six donor weapons into assets/rig/<family>/weapon_<type>.png.
+
+	Runs after rasterise(), which wipes the family directory. Each donor is
+	rasterised at *this* family's raster factor, so weapon_*.png comes out exactly
+	the size the sword.png it replaces is -- 700x224 valkyrie, 800x256 skeleton --
+	which is what makes the swap a texture assignment and nothing else.
+	"""
+	from PIL import Image
+
+	out_dir = os.path.join(ROOT, "assets", "rig", family)
+	rows = []
+	for piece_type, (pattern, label) in sorted(WEAPON_DONORS.items()):
+		zips = sorted(glob.glob(os.path.join(packs_dir, "*%s*.zip" % pattern)))
+		if len(zips) != 1:
+			raise SystemExit("expected exactly one pack matching %r in %s, found %d"
+			                 % (pattern, packs_dir, len(zips)))
+		png = os.path.join(out_dir, "weapon_%s.png" % piece_type)
+		gs(extract_weapon_eps(zips[0], workdir), png, raster)
+		# An EPS that rasterises to nothing is a valid PNG and would mount as an
+		# invisible weapon, which is exactly the silent wrongness this project
+		# does not accept. The alpha bbox is what says a shape actually landed.
+		with Image.open(png) as im:
+			box = im.split()[3].getbbox()
+			if box is None or (box[2] - box[0]) < 8 or (box[3] - box[1]) < 8:
+				raise SystemExit("%s rasterised to nothing (bbox %s)" % (png, box))
+			rows.append((piece_type, label, os.path.basename(zips[0]), im.size, box))
+	return rows
+
+
+def extract_weapon_eps(zip_path, workdir):
+	"""The lowest-numbered variant's Sword.eps out of a donor pack .zip.
+
+	Lowest-numbered for the same reason open_pack() picks it: the three variants
+	of a pack carry three different weapons, and one of them has to be the one
+	this table means.
+	"""
+	with zipfile.ZipFile(zip_path) as z:
+		members = sorted(n for n in z.namelist()
+		                 if "__MACOSX" not in n and n.endswith("_Sword.eps"))
+		if not members:
+			raise SystemExit("no EPS weapon in %s" % zip_path)
+		out = os.path.join(workdir, "donors", os.path.basename(zip_path))
+		os.makedirs(out, exist_ok=True)
+		return z.extract(members[0], out)
 
 
 # ---------------------------------------------------------------- scene layout
@@ -399,6 +484,29 @@ def write_scene(rig, family, raster, parts, children, textures, height, crown, o
 
 	emit("Rig")
 
+	# KNOWN DIVERGENCE, found 2026-08-19 and deliberately not fixed here: the
+	# shipped scenes/character_rig_*.tscn do not carry the Crest this block emits.
+	# It was retuned during Day 6's duel work -- devlog: "the rigs' crest anchor
+	# moved onto the head and grew ... Crest position 381 -> 187, scale 0.45 -> 0.68
+	# in rig space" -- and that change went into the .tscn without ever coming back
+	# into this tool. Re-running the importer therefore reverts it silently: the
+	# crest floats above the helmet instead of sitting on it, every board figure
+	# shrinks to make room for the taller silhouette, and assets/board/pieces.png
+	# stops reproducing from a fresh bake. Day 7 hit exactly that, reverted the two
+	# scenes, and recorded it rather than guessing at a rule that produces the
+	# *non-uniform* (0.682, 0.611) scale the code below cannot express at all.
+	# Fix the rule here before running this tool again.
+	#
+	# Widened 2026-08-20, same divergence, one multiplier further out. The crest
+	# went from 18% of character height to 25% -- the top row of ADR-0007 decision
+	# 8's own size sweep -- and because the shipped scale is the hand-tuned one
+	# above, that was applied where the hand-tune lives: the two .tscn scales were
+	# multiplied by 25/18, giving (0.947, 0.848) valkyrie and (0.930, 0.816)
+	# skeleton. CREST_HEIGHT_FRACTION below is moved to 0.25 with them so the tool
+	# and the scenes at least agree on the *fraction* while they still disagree on
+	# how to reach it. Whoever resolves the divergence has to reproduce 25%, not
+	# 18%: the shipped numbers encode the new fraction.
+	#
 	# Crest: rigid on the crown of the head bone, so it follows the head through
 	# every animation without a track of its own (ADR-0007 decision 8). It needs
 	# the same local rotation the Head sprite carries -- that's what cancels the
@@ -441,6 +549,8 @@ def main():
 	ap = argparse.ArgumentParser(description=__doc__)
 	ap.add_argument("source", help="pack .zip or an already-extracted pack directory")
 	ap.add_argument("--family", default=None, help="asset subdirectory name (default: entity name)")
+	ap.add_argument("--packs", default=DONOR_PACK_DIR,
+	                help="directory holding the donor pack .zip files (default: %(default)s)")
 	args = ap.parse_args()
 
 	workdir = tempfile.mkdtemp(prefix="craftpix-")
@@ -459,6 +569,7 @@ def main():
 					if k.file:
 						used.add(rig.files[k.file]["name"])
 		textures = rasterise(pack_dir, family, raster, used)
+		weapons = rasterise_weapons(family, raster, args.packs, workdir)
 
 		height, crown = measure(rig, pack_dir, parts)
 		out = scene_path(family)
@@ -470,6 +581,9 @@ def main():
 		print("character     %.0f native units, %.0f px at %gx" % (height, height * raster, raster))
 		print("crest         %.0f%% of height, crown at (%.1f, %.1f), scale %.4f"
 		      % (CREST_HEIGHT_FRACTION * 100, crown[0], crown[1], crest_scale))
+		for piece_type, label, donor, size, box in weapons:
+			print("weapon        %-7s %-24s %dx%d alpha %s  <- %s"
+			      % (piece_type, label, size[0], size[1], box, donor))
 		print("scene         %s" % out)
 		# Rasterising wipes assets/rig/<family>/, and with it Godot's .import
 		# files; without this the scene cannot resolve its textures.

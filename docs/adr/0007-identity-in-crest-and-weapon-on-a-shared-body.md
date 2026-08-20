@@ -2,7 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-16, rewritten in place 2026-08-17 (twice: the pack adoption, then the
-  110 px silhouette-test result and the crest that fixed it)
+  110 px silhouette-test result and the crest that fixed it), again 2026-08-19 (decision 5's
+  weapon: three variants across two packs became six, one per piece type, across ten) and again
+  2026-08-20 (the crest grows to 25% and gains a per-type hue; the weapon goes onto the board,
+  reversing the paragraph in decision 5 that kept it off)
 - **Refines:** [ADR-0003](0003-one-shared-2d-rig-pvz-art-direction.md). It does **not** supersede
   it — every decision below sits inside 0003's "one shared rig, identity by silhouette, headgear
   and weapon" and makes that sentence literal rather than reversing it.
@@ -139,22 +142,93 @@ The replacement is better on the black side and deliberately absent on the white
 
 **5. Identity is carried by the weapon and a crest, on one shared body per side; the head is
 shared flavour.** Decision 8 found that the pack's three heads do not differ enough in outline to
-carry identity on their own, so identity moved off the head onto a crest mounted on it. Three
-heads × three weapons is still nine head+weapon combinations for six piece types, so the other two
-variant bodies are still not used — that part of the arithmetic is unchanged, only what it has to
-prove is smaller.
+carry identity on their own, so identity moved off the head onto a crest mounted on it. The other
+two variant bodies are still not used — that part of the arithmetic is unchanged, only what it has
+to prove is smaller.
 
 ```
 7 body parts (body, 2 arms, 2 hands, 2 legs)     shared within a side
 1 head                                           3 variants, flavour, not identity
 1 face                                           3 variants (neutral / blink / pain)
-1 weapon                                         3 variants                         ← identity
+1 weapon                                         6 variants, one per piece type,
+                                                  shape shared across sides          ← identity
 1 crest                                          6 variants, procedural,
                                                   shape shared across sides          ← identity
 1 shield                                         shared, white side only
 ──────────────────────────────────────────────────────────────────────
 12 parts white, 11 black, against ADR-0003's hard cap of 16
 ```
+
+**Rewritten 2026-08-19: the weapon is six variants, not three, and they come from ten packs rather
+than two.** The first version of this decision had one weapon per *pack variant* — three shapes for
+six piece types, so two types would have shared a weapon and the crest would have been doing all
+the work on those two. It is now one shape per piece type, the same shape on both sides, so a child
+learns one mapping rather than two and the two families differ only in the raster factor the same
+vector source is rendered at.
+
+| type | weapon | donor pack |
+|---|---|---|
+| pawn | knobbly club | `zombie-villager` |
+| knight | thin spear | `chibi-necromancer-of-the-shadow` |
+| bishop | staff with a round orb | `seer` |
+| rook | broad heavy blade | `chibi-skeleton-crusader` |
+| queen | staff with a flame head | `chibi-dark-oracle` |
+| king | cruciform sword | `chibi-valkyrie` |
+
+**This is decision 7's option (b) — "source more from other Craftpix freebie packs" — applied to
+weapons instead of heads, and the reason it works here is exactly the reason it would not have
+worked there.** Decision 8 found that the packs' heads overlap each other by ~88% filled black,
+because every chibi helmet in this art direction is a rounded dome: they differ by surface drawing
+and colour, which a silhouette deletes. Weapons do not have that problem. A club, a spear, an
+orb-topped staff, a broad blade, a flame staff and a cruciform sword differ in *outline*, which is
+the one channel that survives the 110 px test. Sourcing more of a part that does not discriminate
+buys nothing; sourcing more of a part that does is the cheapest identity available.
+
+It is also cheap mechanically, and that was verified before it was decided rather than after.
+**All ten downloaded chibi packs declare their weapon as `<file … name="Sword.png" width="400"
+height="128" pivot_x="0" pivot_y="1">`** — identical canvas and identical pivot to the Sword each
+one replaces. A donor is therefore a pure texture drop-in on the existing sprite: no offset, no
+grip anchor to measure, no per-type rig adjustment, no per-animation correction. Rasterised at the
+family's own factor it comes out at exactly the size that family's own `sword.png` already is
+(700×224 valkyrie, 800×256 skeleton). All of it is `tools/import_craftpix.py`'s job, which is
+[ADR-0009](0009-the-art-pipeline-is-code.md)'s requirement that the step end in a script.
+
+Two donors were available and deliberately not used. **The bloody alchemist's cleaver is excluded
+on content grounds** — the blade carries blood, and this is a game for 6–12 year olds. The forest
+ranger's bow is excluded on mechanics: it is a 200×320 part on a different canvas, held
+differently, and it is the one donor in the set that is not a drop-in. Three more are unused and
+available if the human legibility check finds a pair that cannot be told apart: the skeleton
+warrior's falchion, the fallen angel's katana, the reaper's crook.
+
+**The licence position is unchanged by any of this.** Clause 2.1 permits shipping and modifying
+pack art in a commercial game, which is all that adopting eight more packs does; clause 2.2's
+limits (no resale, no redistribution that makes the art files usable to another end user via the
+app) are not what this project does, and the publication plan below covers all ten packs the same
+way it covered two. **Clause 3.1.1 still forbids feeding any of it to an image model**, and nothing
+here does: the weapons are rasterised from the packs' own vector sources by Ghostscript and
+composited by script. The crests remain procedural and have no pack lineage at all.
+
+**Where the weapon is used: everywhere, the board included. Rewritten 2026-08-20; the paragraph
+this replaces said the opposite.** It said the board mounts every figure with the weapon hidden,
+because at a 135×170 cell the weapon widens the shared union bounding box by ~30% and every one of
+the twelve figures is scaled to that one union (ADR-0011 decision 2), so showing it shrinks them
+all for "something nobody can read at that size".
+
+The arithmetic was right and the conclusion was wrong, because the price it declined to pay bought
+the board a *single* type channel sitting on six heads that are identical: 0.98–1.00 pairwise IoU
+filled black at 110 px, pawn and knight exactly 1.0000. A person shown the board named the result
+in one second — "all the pieces are the same". The weapons are the one part that differs in
+**outline**, which is the channel that survives at cell size, and that is the whole reason decision
+5 sourced six of them.
+
+Measured cost of turning them on, from `tools/bake_board_atlas.py`: the shared union goes
+587×773 → 922×841, the fit scale 0.2096→0.1399, and the figure 123×162→129×118 in the same
+135×170 cell. The "~30%" above was itself optimistic — the union widens by 57% — and the figure
+loses 27% of its height, not 30%, because width now binds where height used to. That leaves ~50 px
+of the cell empty under the feet, which is 170 px of pitch bought (ADR-0011 decision 2) to stop
+figures occluding each other down a column and no longer needed for it. The crest was grown 18%→25% in the same pass to pay for it and comes out at 36–43 px at cell
+scale against 37–47 before — the same badge, in six colours, with a distinct weapon outline beside
+it.
 
 Body decomposition is 7 parts, not the 9 the first version budgeted: arm and hand are separate but
 there is no forearm, and each leg is one part with no separate shin.
@@ -169,8 +243,13 @@ with the duel panel open and both characters idling are **35 against the ~60 bud
 (`tools/frametime.sh`, recorded in `duel-panel-and-rig/tasks.md`), so +1 is affordable and the
 statement is a number rather than a hope.
 
-Page contents per side: one shared body set (7 parts) + 3 heads + 3 weapons + 3 faces, plus the
-shield on the white page. `SlashFX` is excluded — it is an effect and belongs on the effects page,
+Page contents per side: one shared body set (7 parts) + 3 heads + 6 weapons + 3 faces, plus the
+shield on the white page. **The table below was computed with 3 weapons per side.** Six costs
++0.20 Mpx on the white page and +0.49 Mpx on the black one, measured from the alpha-trimmed
+bounding boxes of the twelve files the importer now writes, against 3× each family's own
+`sword.png` as the old estimate — so the chosen row moves from 63% / 60% to roughly **68% / 72%**.
+Still one page per side, still affordable, and the black page is now the tighter of the two because
+the skeleton rasterises at 2.0 against the valkyrie's 1.75. `SlashFX` is excluded — it is an effect and belongs on the effects page,
 not the character page. Areas are summed from alpha-trimmed bounding boxes of the actual parts and
 scaled from the native rendered character height (valkyrie 565 px, skeleton 528 px) against
 4.19 Mpx of usable 2048×2048 page:
@@ -202,6 +281,10 @@ The options, none of them chosen here:
 - **(b) Source more heads from other Craftpix chibi freebie packs** in the same art direction. Costs
   nothing, and style drift is structurally unlikely — same studio, same canvas conventions. **But
   nobody has checked that such packs exist, or that their rig conventions match these two.**
+  *Checked on 2026-08-19: they exist, ten of them are downloaded, and their rig conventions match
+  exactly — same canvas, same pivots, same part names.* The option was taken, but for **weapons**
+  rather than heads: see decision 5's rewrite. It would still not have helped for heads, because
+  what a head fails is outline, and every chibi helmet in this art direction is a rounded dome.
 - **(c) Ask Craftpix for written permission** for reference-only use, which is what clause 3.1.1
   otherwise forbids.
 
@@ -293,8 +376,49 @@ height:
 25%                        unambiguous, with margin
 ```
 
-**Specify 18% of character height, with 12% as the hard floor.** On a 110 px board sprite that is
-roughly a 20 px crest.
+**Specify 25% of character height, with 12% as the hard floor.**
+
+**Edited 2026-08-20: 18% → 25%, the top row of the sweep above, and the crest gains a per-type
+colour.** The 18% was measured on a crest mounted *above* the helmet, which is not where the crest
+has been since Day 6 moved it onto the helmet face for board legibility. From that move onward the
+crest stopped being a silhouette channel at all — the six 110 px filled-black heads overlap
+0.98–1.00 pairwise, pawn and knight exactly 1.0000 — so the sweep's own top row is the size to
+take, and taking it is inside this decision's measured range rather than a new guess.
+
+Colour is the second half of the same edit. `tools/crests.py` drew all six in one saturated amber,
+and the argument for that amber — "both packs are desaturated grey, bone and tan, so this reads
+against the silver valkyrie and the bone skeleton alike and **collides with nothing else on
+screen**" — turned out to be half true. It reads. It collides, and measurably:
+
+```
+dE00(amber, the board's "selected" frame)   0.0    the same colour, exactly
+dE00(amber, the valkyrie's own tan)        16.8
+dE00(amber, the light square)              23.7
+```
+
+The six replacements are derived rather than chosen. The board is warm — light square (237,222,189)
+at hue 40°, dark square (125,89,61) at 25° — and three of the five cell marks live in that same
+band (capture 6°, check 12°, selected 38°), so the crest palette is the complement of it: six hues
+over 60–340°, clear of the move blob (199°) and the last-move violet (258°), ordered by piece value
+so the mapping is a rule. Chroma is held above C\*=48 and lightness inside L\* 45–90, because a
+board crest is ~40 px inside a thick black outline and a dark fill vanishes into the outline while
+a pale one vanishes into the light square.
+
+| type | fill | hue | L\* | C\* |
+|---|---|---|---|---|
+| pawn | `#C8F000` lime | 70° | 89.2 | 94.3 |
+| knight | `#00B32D` green | 135° | 63.7 | 83.9 |
+| bishop | `#00DECD` turquoise | 175° | 80.0 | 48.4 |
+| rook | `#1E6EF0` blue | 217° | 49.2 | 76.0 |
+| queen | `#A02BE6` violet | 277° | 45.5 | 102.8 |
+| king | `#FF3D9E` rose | 330° | 59.0 | 78.1 |
+
+Worst pair among the six is queen/rook at ΔE00 23.3; the nearest non-crest colour on screen is
+rook against the last-move violet at 19.9, and the nearest body colour is bishop against the
+valkyrie's silver at 24.2 — against the amber's 0.0 and 16.8. **Colour is an added channel, not a
+replacement**: `_style()` only rewrites the RGB inside the silhouette, the alpha is untouched, and
+the six outlines the 110 px test ran against are byte-identical to what they were. Someone who
+cannot separate the hues still has the six shapes.
 
 **The pairwise IoU metric was the wrong instrument, and that is corrected here rather than
 dropped quietly.** With the crest added it barely moved — 0.912 to 0.909 on the white side — while
@@ -401,9 +525,9 @@ nobody is judging and exposes in the frames the checkpoint is about.
   use, modification and distribution inside a shipped game are all explicit.
 - **Atlas pressure drops hard**, from ~78% of one page to 63% / 60% of two. Adding assets is no
   longer a page-boundary decision.
-- **The 110 px silhouette test passes, with a crest, at negligible atlas cost.** Six roughly 20 px
-  crests (decision 8) close the gap the pack's heads leave open, at 18% of character height with a
-  12% floor. Because the crest is drawn by code, it also finishes what decision 7 left open:
+- **The 110 px silhouette test passes, with a crest, at negligible atlas cost.** The six crests
+  (decision 8) close the gap the pack's heads leave open, at 25% of character height with a
+  12% floor, one hue per type. Because the crest is drawn by code, it also finishes what decision 7 left open:
   **clause 3.1.1 stops constraining anything that matters**, since the one asset that actually
   carries identity now has no pack lineage at all. This is ADR-0009's thesis — generation survives
   in one narrow place, everything else is scripted — holding more strongly than ADR-0009 itself

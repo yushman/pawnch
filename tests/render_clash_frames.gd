@@ -11,7 +11,7 @@ extends SceneTree
 # It inherits render_board_states.gd's constraint: `--headless` installs the
 # dummy rendering server and Viewport.get_texture() returns null under it, so
 # this needs a real window on the Compatibility renderer the game ships with.
-# The scene is mounted in a 1080x2400 SubViewport so the framing does not depend
+# The scene is mounted in a 2400x1080 SubViewport so the framing does not depend
 # on what size window the desktop allows.
 
 ## Seconds from the tap, dense through the approach and the strike and sparser
@@ -27,11 +27,20 @@ const SAMPLE_SEC := [
 	0.66, 0.78, 0.92, 1.10, 1.30, 1.50, 1.70,
 ]
 const COLUMNS := 7
-const THUMB_SCALE := 0.24
-## The panel's own rect inside a 1080x2400 viewport: the 1080x1500 panel centred
-## in a 1080x1920 safe band, itself centred in the viewport. Cropped to it so a
-## thumbnail is all clash and no board.
-const PANEL_RECT := Rect2i(0, 450, 1080, 1500)
+## 0.24 of a 1080x1500 portrait panel gave a 259x360 thumbnail. The panel went
+## wider than it is tall with the landscape flip and 0.16 was what kept seven of
+## them across a sheet from becoming a 3226 px strip of mostly empty stage --
+## most of that width being stage nothing ever reached, which is what narrowing
+## the panel to 1240 removed. The thumbnail is sized off the panel, so the same
+## 0.16 would now shrink the figures by a third for no reason: 0.25 puts the
+## sheet back at the width it has been since the flip (7 x 310 px) with the
+## figures a third larger on it.
+const THUMB_SCALE := 0.25
+const VIEWPORT := Vector2i(2400, 1080)
+## The panel's own rect inside that viewport, asked of the panel rather than
+## restated here: this crop is the one thing standing between a recomposition and
+## a sheet of thumbnails that are all board.
+var panel_rect: Rect2i = Rect2i(DuelPanel.frame_rect_for(Vector2(VIEWPORT)))
 const WARM_FRAMES := 30
 
 var out_dir := "/tmp/pawnch-clash"
@@ -44,7 +53,7 @@ func _initialize() -> void:
 		out_dir = args[0]
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	viewport = SubViewport.new()
-	viewport.size = Vector2i(1080, 2400)
+	viewport.size = VIEWPORT
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	root.add_child(viewport)
 	var main: Node = load("res://scenes/main.tscn").instantiate()
@@ -69,6 +78,21 @@ func _initialize() -> void:
 	# real session: it strikes leftward off a rig mounted at scale.x < 0, so
 	# this is where a leap authored for white only would show itself.
 	await _strip(session, panel, "pounce-black", "4k3/8/8/3p4/4P3/8/8/4K3 b - - 0 1", ["d5e4"])
+	# 1.e4 d5 2.Bb5+ c6 3.Bxc6 -- the shared strike, and after Day 7 the clash a
+	# session sees most. Five moves because a bishop cannot reach anything worth
+	# taking in fewer: the check on move 2 is what forces c7-c6 into range.
+	await _strip(session, panel, "strike-white", "", ["e2e4", "d7d5", "f1b5", "c7c6", "b5c6"])
+	# And the same smash struck leftward. This is the strip that has to be looked
+	# at for the bug the pounce shipped with -- the attacker covering the defender
+	# -- and for the one thing no other clash does: the defender is knocked
+	# backwards, towards the panel's clipped edge.
+	await _strip(session, panel, "strike-black", "4k3/8/2b5/8/4P3/8/8/4K3 b - - 0 1", ["c6e4"])
+	# The sixth. It was measured by tools/measure_stage_bounds.gd and never drawn,
+	# on the reasoning that a leftward charge is a mirrored rightward one -- which
+	# is true of the staging and not of what it looks like, since the two rigs are
+	# different art. Day 8 moved every figure and every staging number, so the set
+	# is completed rather than sampled.
+	await _strip(session, panel, "charge-black", "4k3/8/3n4/8/4P3/8/8/4K3 b - - 0 1", ["d6e4"])
 	quit(0)
 
 
@@ -98,15 +122,22 @@ func _strip(session: GameSession, panel: Node, label: String, fen: String, moves
 		await process_frame
 		var t := (Time.get_ticks_usec() - start_usec) / 1_000_000.0
 		if t >= float(SAMPLE_SEC[next]):
-			frames.append(_grab())
+			frames.append(await _grab())
 			next += 1
 	_sheet(frames, label)
 
 
 func _grab() -> Image:
+	# The same trap tests/render_board_pieces.gd documents, and this script had
+	# it: get_image() reads whatever was last *drawn* into the render target, and
+	# process_frame is the scene tree catching up rather than the GPU. Without
+	# this await it hands back an earlier capture -- which on Day 8 produced a
+	# whole strip of twenty-one identical thumbnails showing the end of the
+	# previous clash, intermittently and only on one strip of the six.
+	await RenderingServer.frame_post_draw
 	var image := viewport.get_texture().get_image()
-	var thumb := image.get_region(PANEL_RECT)
-	thumb.resize(int(PANEL_RECT.size.x * THUMB_SCALE), int(PANEL_RECT.size.y * THUMB_SCALE),
+	var thumb := image.get_region(panel_rect)
+	thumb.resize(int(panel_rect.size.x * THUMB_SCALE), int(panel_rect.size.y * THUMB_SCALE),
 		Image.INTERPOLATE_BILINEAR)
 	return thumb
 

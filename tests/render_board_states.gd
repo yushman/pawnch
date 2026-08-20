@@ -12,7 +12,7 @@ extends SceneTree
 # the render, not the phone. It inherits render_board_pieces.gd's constraint:
 # `--headless` installs the dummy rendering server and Viewport.get_texture()
 # returns null under it, so this needs a real window on the Compatibility
-# renderer the game ships with. The scene is mounted in a 1080x2400 SubViewport
+# renderer the game ships with. The scene is mounted in a 2400x1080 SubViewport
 # so the framing does not depend on what size window the desktop allows.
 
 # White to move, with a queen the opponent's knight can take and a bishop that
@@ -29,7 +29,7 @@ func _initialize() -> void:
 		out_dir = args[0]
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	viewport = SubViewport.new()
-	viewport.size = Vector2i(1080, 2400)
+	viewport.size = Vector2i(2400, 1080)
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	root.add_child(viewport)
 	var main: Node = load("res://scenes/main.tscn").instantiate()

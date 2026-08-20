@@ -1,32 +1,50 @@
 extends Control
 class_name BoardView
 
-# The board, rotated a quarter turn clockwise so white stands on the left
-# (ADR-0011 decisions 1, 2, 3, 4 and 6).
+# The board, in the orientation every child has already seen one in: files a-h
+# left to right, rank 1 along the bottom, white nearest (ADR-0011 decisions 1,
+# 2, 3, 4 and 6).
 #
-# The rotation is a coordinate mapping, not a rotated node:
+# It is a coordinate mapping, not a rotated node:
 #
-#     screen_col = rank - 1        (rank 1 leftmost)
-#     screen_row = file index      (file a topmost)
+#     screen_col = file index      (file a leftmost)
+#     screen_row = rank_count - rank   (rank 8 topmost)
 #
-# Rotating this node instead would tip every figure onto its side. Nothing here
-# is ever mirrored either: a mirror reflects the position — king and queen swap
-# files — which reads as a broken board. The rules know none of it; a1 is a1.
+# **This was a quarter turn clockwise until Day 8, and landscape is what undid
+# it.** The rotation existed to put the two side-on armies in two facing columns
+# and it cost two things: the crowding moved onto the axis that occludes -- eight
+# figures stacked one behind another down a single column -- and the fix for that
+# was a cell taller than it was wide, 135 x 170, which only portrait had the
+# vertical room to pay for. Landscape has 1080 px of short edge and no such room,
+# so the compensation had to go; removing the rotation removes what it was
+# compensating for. Two armies in two *rows* overlap one layer deep, not eight,
+# and one layer is what a 135 px square cell separates on its own.
+#
+# What the un-rotation costs is written into ADR-0011 decisions 1 and 5, because
+# it is not free: the armies no longer face each other (the art is +-x side-on
+# and cannot look up the board), and the board no longer agrees with the duel
+# panel about which side of the screen a colour lives on.
+#
+# Nothing here is ever mirrored: a mirror reflects the position — king and queen
+# swap files — which reads as a broken board. The rules know none of it; a1 is a1.
 #
 # Everything is drawn by this one CanvasItem, in one pass: squares, the marks
 # that belong under a figure, then figures row by row from the top, then the
-# marks that belong over one. Row by row from the top is what makes a figure
-# overlap the one in the cell above it without a y-sort, and the whole board
-# stays two batches — the squares share the white texture and every mark comes
-# off the same atlas page as the figures, so there is exactly one texture switch
-# in the frame however the two are interleaved.
+# marks that belong over one. Row by row from the top is the safe order for any
+# figure that overhangs its own cell upward; at a 135 px square cell none does,
+# and it is kept because it costs nothing and the alternative is a y-sort. The
+# whole board stays two batches — the squares share the white texture and every
+# mark comes off the same atlas page as the figures, so there is exactly one
+# texture switch in the frame however the two are interleaved.
 #
-# Piece type is carried by the head crest and nothing else (ADR-0011 decision 4,
-# reversed 2026-08-17). A tile crest glyph shipped for one afternoon and was
-# dropped: it cost a fifth of every figure's height and still could not separate
-# the king from the queen.
+# Piece type is carried by the head crest and the weapon's outline (ADR-0011
+# decision 4). A tile crest glyph shipped for one afternoon and was dropped: it
+# cost a fifth of every figure's height and still could not separate the king
+# from the queen.
 
-const CELL := Vector2(135, 170)
+## Square, since Day 8. The extra 35 px of pitch was compensation for the
+## rotation above and went with it.
+const CELL := Vector2(135, 135)
 const ATLAS_PAGE := "res://assets/board/pieces.png"
 const REGION_MAP := "res://assets/board/pieces.json"
 
@@ -44,6 +62,39 @@ const MARK_CAPTURE := "capture"
 const MARK_CHECK := "check"
 const MARK_SELECTED := "selected"
 const MARK_LAST_MOVE := "last_move"
+
+# The two margins the long edge leaves beside a square board, one per colour --
+# white's on the left and black's on the right, following ADR-0011 decision 5's
+# rule that sides are fixed by colour and never by role. "Left is me" is learned
+# once and a graveyard that swapped sides between captures would spend it.
+#
+# Four columns of four is sixteen slots for the fifteen pieces a side can lose,
+# 480 x 480 inside a 660 px margin. The frames are the board's own, drawn a
+# little smaller, so a captured piece is literally the picture it was on the
+# square it died on -- the cheapest possible guarantee of "identifiable by type",
+# and free, since the frames are already on the page.
+const GRAVE_COLUMNS := 4
+const GRAVE_ROWS := 4
+const GRAVE_CELL := Vector2(120, 120)
+const MARGIN_PAD := 20.0
+## Most valuable first, so the biggest thing an army has lost is the first thing
+## in the corner nearest the reader.
+const GRAVE_ORDER := ["queen", "rook", "bishop", "knight", "pawn"]
+## Multiplied into the fallen figure only. Six upright valkyries at full colour
+## in a margin read as a reserve waiting to come on rather than as casualties;
+## dimming them is what makes them dead.
+##
+## It is a multiply and therefore not a true desaturation -- Compatibility has no
+## post-processing (ADR-0001) and a saturation shader would put the graveyard in
+## its own material and cost the draw call this whole layout is avoiding. A cool
+## grey multiply pulls the warm half of the palette most of the way there, which
+## is what this needs and all it claims.
+const FALLEN_TINT := Color(0.40, 0.42, 0.50, 0.90)
+## The commander of each army, standing with that army's own graveyard at that
+## colour's own end of the margin (see hero_origin). A static frame off the same
+## atlas page: a mounted rig is ~12 draw calls and two of them would put the idle
+## board near its whole budget.
+const HERO_CELL := Vector2(300, 300)
 
 const FILES := ["a", "b", "c", "d", "e", "f", "g", "h"]
 const FEN_TYPES := {
@@ -70,6 +121,8 @@ const START_FEN := "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 var _pieces := {}  # "e1" -> {"type": "king", "color": "white"}
 var _page: Texture2D
 var _figure_regions := {}  # "white_king" -> [Rect2 x6]
+var _crest_regions := {}  # "white_king" -> Rect2, the crest alone, in register
+var _hero_regions := {}  # "white" -> Rect2
 var _mark_regions := {}  # "move" -> Rect2
 var _breath_tick := 0
 var _selected := ""
@@ -79,6 +132,12 @@ var _check := ""
 var _last_move: Array = []
 var _drag_square := ""
 var _drag_point := Vector2.ZERO
+# The material the game started from, per colour. The graveyard is the
+# difference between this and what is on the board *right now*, which is what
+# makes it correct for free: nothing increments it, nothing can drift from the
+# rules, and it is stale exactly as long as the board is -- so it cannot
+# announce a capture the clash has not delivered yet.
+var _start_census := {}
 
 
 func _ready() -> void:
@@ -123,6 +182,93 @@ func set_position_from_fen(fen: String) -> void:
 	queue_redraw()
 
 
+# What `color` has lost, most valuable first, derived from the position rather
+# than tallied as captures happen: a counter incremented on each capture is a
+# second source of truth about the game, and this project has exactly one
+# (ADR-0004). The board is not refreshed until the clash reports done, so this
+# is stale for precisely as long as the board is -- which is the behaviour the
+# board-view spec asks for, obtained by not writing any code for it.
+#
+# Promotion is handled but not perfectly, and the imperfection is a property of
+# deriving from the position rather than a bug in this function. Every promotion
+# consumes one pawn and adds one piece, so the promoted pieces are counted and
+# subtracted from the missing pawns; what that cannot see is a promoted queen
+# being captured while the original still stands, which reports a lost pawn
+# instead of a lost queen. Telling those apart needs move history, and history
+# is the second source of truth this is avoiding.
+func captured(color: String) -> Array:
+	var have := {}
+	for square in _pieces:
+		var piece: Dictionary = _pieces[square]
+		if piece["color"] == color:
+			have[piece["type"]] = have.get(piece["type"], 0) + 1
+	# Built on first use rather than in _ready(): `start_fen` is an exported
+	# parameter (ADR-0011 decision 6) and a BoardView that never enters the tree
+	# is a real case -- the suite makes several -- so a census computed in
+	# _ready() reports "nothing has been captured" for all of them.
+	if _start_census.is_empty():
+		_start_census = _census(start_fen)
+	var start: Dictionary = _start_census.get(color, {})
+	var promoted := 0
+	for type in start:
+		if type != "pawn":
+			promoted += maxi(0, int(have.get(type, 0)) - int(start[type]))
+	var out := []
+	for type in GRAVE_ORDER:
+		var missing := int(start.get(type, 0)) - int(have.get(type, 0))
+		if type == "pawn":
+			missing -= promoted
+		for i in maxi(0, missing):
+			out.append(type)
+	return out
+
+
+# Where one colour's graveyard block sits, derived from the board rather than
+# written down: the margin is whatever the long edge leaves beside a square
+# board, so both follow the board if it ever moves.
+#
+# **Anchored vertically to match its own army**: white's losses sit low and
+# black's sit high, because the board splits the colours top-to-bottom while the
+# margins split them left-to-right. Without that echo nothing on screen connects
+# "the left margin is white's" to a board where white is at the bottom; with it,
+# the connection needs no explaining.
+func graveyard_origin(color: String) -> Vector2:
+	var y := MARGIN_PAD if color == "black" \
+		else size.y - GRAVE_ROWS * GRAVE_CELL.y - MARGIN_PAD
+	return Vector2(_margin_x(color, GRAVE_COLUMNS * GRAVE_CELL.x), y).floor()
+
+
+# The commander's slot: hard against its own graveyard, MARGIN_PAD away, on the
+# same side of the margin -- so everything belonging to a colour sits at that
+# colour's own end of it.
+#
+# **It was the other end of the margin for one day, and that was backwards.**
+# White's commander stood at the top of the left band, level with black's army
+# and directly across from black's dead, and black's stood at the bottom next to
+# white's. The graveyards already echo the board -- white's low because white's
+# army is at the bottom, black's high -- and the commander is the army's *face*,
+# so it carries that echo harder than a pile of casualties does, not less.
+#
+# Which of the two takes the outer edge is decided by the game-over banner
+# rather than by taste. The banner covers the top 550 px of the left band, and
+# the only things in there it may cover are white's commander (decoration) and
+# the turn indicator (which hides itself at game over); both graveyards have to
+# survive it, because the material that decided the game is the thing a child
+# counts afterwards. So the graveyard keeps the outer end and the commander
+# stands inboard of it.
+func hero_origin(color: String) -> Vector2:
+	var grave := graveyard_origin(color).y
+	var y := grave - MARGIN_PAD - HERO_CELL.y if color == "white" \
+		else grave + GRAVE_ROWS * GRAVE_CELL.y + MARGIN_PAD
+	return Vector2(_margin_x(color, HERO_CELL.x), y).floor()
+
+
+func _margin_x(color: String, width: float) -> float:
+	var margin := board_origin().x
+	var x := (margin - width) * 0.5
+	return x + (margin + board_size().x if color == "black" else 0.0)
+
+
 func occupied_squares() -> Array:
 	var names := _pieces.keys()
 	names.sort()
@@ -158,11 +304,13 @@ func placement() -> String:
 	return "/".join(rows)
 
 
-# The board is centred on whatever it is given; on a 1080x2400 screen an 8x8
-# board is 1080x1360 with 520 px of background above and below, which puts it
-# under the same band the duel panel occupies.
+# The board is centred on whatever it is given; on a 2400x1080 screen an 8x8
+# board is 1080x1080 -- the short edge, which is what sets a chessboard's size in
+# either orientation -- with 660 px of background to the left of it and 660 to
+# the right. That is the space the turn indicator and the game-over banner live
+# in (board-view spec), and it is the only thing landscape gives the board.
 func board_size() -> Vector2:
-	return Vector2(rank_count * CELL.x, file_count * CELL.y)
+	return Vector2(file_count * CELL.x, rank_count * CELL.y)
 
 
 func board_origin() -> Vector2:
@@ -170,7 +318,7 @@ func board_origin() -> Vector2:
 
 
 func screen_cell(square: String) -> Vector2i:
-	return Vector2i(square.substr(1).to_int() - 1, FILES.find(square[0]))
+	return Vector2i(FILES.find(square[0]), rank_count - square.substr(1).to_int())
 
 
 func cell_rect(square: String) -> Rect2:
@@ -191,9 +339,9 @@ func square_at(point: Vector2) -> String:
 		return ""
 	var col := int(local.x / CELL.x)
 	var row := int(local.y / CELL.y)
-	if col >= rank_count or row >= file_count:
+	if col >= file_count or row >= rank_count:
 		return ""
-	return "%s%d" % [FILES[row], col + 1]
+	return "%s%d" % [FILES[col], rank_count - row]
 
 
 # `last_move` is the pair of squares the opponent's move joined, or [] for none.
@@ -251,9 +399,9 @@ func figure_region(color: String, type: String, frame := 0) -> Rect2:
 
 func _draw() -> void:
 	var origin := board_origin()
-	for row in file_count:
-		for col in rank_count:
-			var square := "%s%d" % [FILES[row], col + 1]
+	for row in rank_count:
+		for col in file_count:
+			var square := "%s%d" % [FILES[col], rank_count - row]
 			draw_rect(Rect2(origin + Vector2(col * CELL.x, row * CELL.y), CELL),
 				LIGHT_SQUARE if square_is_light(square) else DARK_SQUARE)
 
@@ -264,7 +412,7 @@ func _draw() -> void:
 	# square fills plus a single unbroken run of textured quads however they are
 	# interleaved. Which side of the figures a mark goes is therefore purely a
 	# legibility decision: the check wash and the move glow read fine underneath,
-	# the ring and the selection frame do not — a figure fills 123 of the cell's
+	# the ring and the selection frame do not — a figure fills 129 of the cell's
 	# 135 px and buries anything drawn under it.
 	if _check != "":
 		_draw_mark(_check, MARK_CHECK)
@@ -272,12 +420,14 @@ func _draw() -> void:
 		if not _captures.has(square):
 			_draw_mark(square, MARK_MOVE)
 
-	# Top row first: a figure overhangs upward, so the lower cell must draw last.
+	# Top row first, so a figure that overhangs its own cell upward is drawn
+	# under the one behind it rather than over it. At a square cell nothing
+	# overhangs; this is the order that stays correct if anything ever does.
 	var by_row := {}
 	for square in _pieces:
 		if square != _drag_square:
 			by_row.get_or_add(screen_cell(square).y, []).append(square)
-	for row in file_count:
+	for row in rank_count:
 		for square in by_row.get(row, []):
 			_draw_figure(_pieces[square], cell_rect(square), _breath_frame(square))
 
@@ -291,6 +441,28 @@ func _draw() -> void:
 		_draw_mark(square, MARK_CAPTURE)
 	if _selected != "":
 		_draw_mark(_selected, MARK_SELECTED)
+
+	# The two margins. Same page as everything above, drawn in the same unbroken
+	# run of textured quads, so a commander and fifteen dead a side cost no
+	# texture switch and no draw call -- confirmed against the count
+	# tests/render_board_states.gd prints, not assumed.
+	for color in ["white", "black"]:
+		if _hero_regions.has(color):
+			draw_texture_rect_region(_page, Rect2(hero_origin(color), HERO_CELL),
+				_hero_regions[color])
+		var grave := graveyard_origin(color)
+		var lost := captured(color)
+		for i in mini(lost.size(), GRAVE_COLUMNS * GRAVE_ROWS):
+			var at := grave + Vector2((i % GRAVE_COLUMNS) * GRAVE_CELL.x,
+				(i / GRAVE_COLUMNS) * GRAVE_CELL.y)
+			var cell := Rect2(at, GRAVE_CELL)
+			# Two quads, not one: the body dimmed and the crest over it at full
+			# colour. The crest is the only thing in the margin saying which
+			# piece this was, and dimming it away would leave a row of grey
+			# bodies -- which is the graveyard failing at the one job it has.
+			draw_texture_rect_region(_page, cell,
+				_figure_regions["%s_%s" % [color, lost[i]]][0], FALLEN_TINT)
+			draw_texture_rect_region(_page, cell, _crest_regions["%s_%s" % [color, lost[i]]])
 
 	# Last, and over everything: the dragged piece belongs under the finger, not
 	# on the square it left.
@@ -310,13 +482,29 @@ func _draw_mark(square: String, mark: String) -> void:
 
 
 # Stable per square rather than random per launch, and a bijection over the six
-# frames down a screen column, so a file of eight pawns shows six different
-# poses instead of two.
+# frames *along a screen row*, so a rank of eight pawns shows six different poses
+# instead of two. The coefficients swapped with the un-rotation and they are not
+# arbitrary: 5 is coprime with 6 and 2 is not, so the axis a whole army stands
+# along has to be the one carrying the 5. Left as it was, the pawn rank would
+# have cycled three poses.
 
 
 func _breath_frame(square: String) -> int:
 	var cell := screen_cell(square)
-	return (_breath_tick + cell.y * 5 + cell.x * 2) % BREATH_FRAMES
+	return (_breath_tick + cell.x * 5 + cell.y * 2) % BREATH_FRAMES
+
+
+# A FEN placement field -> how many of each type each colour has. Used once, on
+# the start position, to give the graveyard something to subtract from.
+func _census(fen: String) -> Dictionary:
+	var out := {"white": {}, "black": {}}
+	for ch in fen.split(" ")[0]:
+		if not FEN_TYPES.has(ch.to_lower()):
+			continue
+		var color := "black" if ch == ch.to_lower() else "white"
+		var type: String = FEN_TYPES[ch.to_lower()]
+		out[color][type] = out[color].get(type, 0) + 1
+	return out
 
 
 func _load_atlas() -> void:
@@ -332,10 +520,17 @@ func _load_atlas() -> void:
 	for key in data["marks"]:
 		var b: Array = data["marks"][key]
 		_mark_regions[key] = Rect2(b[0], b[1], b[2], b[3])
+	for key in data.get("crests", {}):
+		var b: Array = data["crests"][key]
+		_crest_regions[key] = Rect2(b[0], b[1], b[2], b[3])
+	for key in data.get("heroes", {}):
+		var b: Array = data["heroes"][key]
+		_hero_regions[key] = Rect2(b[0], b[1], b[2], b[3])
 
 
-# The rotation is the one thing on this board that is easy to get backwards, and
-# a mirror looks almost right. This prints what a screenshot has to agree with.
+# Which way round the board is drawn is the one thing here that is easy to get
+# backwards, and a mirror looks almost right. This prints what a screenshot has
+# to agree with.
 func log_layout() -> void:
 	var origin := board_origin()
 	var corners := PackedStringArray()
@@ -347,20 +542,22 @@ func log_layout() -> void:
 		board_size().x, board_size().y, origin.x, origin.y, CELL.x, CELL.y,
 		" ".join(corners)])
 
-	# A mirrored board puts the white king one row nearer the a-file edge than
-	# the queen instead of one row further.
+	# A mirrored board puts the white king one column nearer the a-file edge than
+	# the queen instead of one column further. The axis this is read on swapped
+	# with the un-rotation, which is exactly the sort of thing that survives a
+	# green suite and shows up as a broken board on the phone.
 	var king := screen_cell("e1")
 	var queen := screen_cell("d1")
 	print("PAWNCH_BOARD white_king=e1 row=%d col=%d white_queen=d1 row=%d col=%d reflected=%s" % [
-		king.y, king.x, queen.y, queen.x, str(king.y < queen.y)])
+		king.y, king.x, queen.y, queen.x, str(king.x < queen.x)])
 
-	var per_col := {}
+	var per_row := {}
 	for square in _pieces:
-		var key := "%s_col%d" % [_pieces[square]["color"], screen_cell(square).x]
-		per_col[key] = per_col.get(key, 0) + 1
-	var counts := per_col.keys()
+		var key := "%s_row%d" % [_pieces[square]["color"], screen_cell(square).y]
+		per_row[key] = per_row.get(key, 0) + 1
+	var counts := per_row.keys()
 	counts.sort()
 	var parts := PackedStringArray()
 	for key in counts:
-		parts.append("%s=%d" % [key, per_col[key]])
+		parts.append("%s=%d" % [key, per_row[key]])
 	print("PAWNCH_BOARD pieces=%d %s" % [_pieces.size(), " ".join(parts)])

@@ -1,4 +1,4 @@
-# 0011. The board is rotated, its cells are tall, and its pieces are baked sprites
+# 0011. The board's orientation, its cell shape, and what stands on it
 
 - **Status:** Accepted
 - **Date:** 2026-08-17
@@ -31,9 +31,9 @@ Two measured numbers bound the rest:
 - **28 draw calls** for a duel panel holding two rigs, on the Redmi Note 13, against the ~60 budget
   in `docs/system-analysis.md`. One rig is 11–12 parts, and two rigs from disjoint texture sets
   cannot batch with each other.
-- **The crest is 18% of character height** (`tools/crests.py`, `CREST_HEIGHT_FRACTION`, ADR-0007
-  decision 8). At the ~1000 px authoring scale that is a ~180 px crest. On a board cell it is
-  roughly 30 px.
+- **The crest is 25% of character height** (`tools/crests.py`, `CREST_HEIGHT_FRACTION`, ADR-0007
+  decision 8; it was 18% until 2026-08-20). At the ~1000 px authoring scale that is a ~250 px
+  crest. On a board cell it is 36–43 px depending on type and family.
 
 That last number is where a risk hides that no document has recorded. ADR-0007's 110 px silhouette
 test asks whether the **two sides** are distinguishable. It has never asked whether the **six piece
@@ -43,7 +43,46 @@ obviously insufficient either — it is untested.
 
 ## Decision
 
-### 1. The board is rotated 90° clockwise. White stands on the left. It is never mirrored.
+### 1. The board is drawn the standard way round. White is at the bottom. It is never mirrored.
+
+**Reversed 2026-08-20 (Day 8), edited in place. This decision said "rotated 90° clockwise, white
+on the left" from Day 3 until the app turned landscape, and the rotation is gone with it.** The
+mapping is now the one every child has already seen:
+
+```
+screen_col = file index          (file a leftmost)
+screen_row = rank_count - rank   (rank 8 topmost)
+```
+
+The rotation was never wanted for its own sake — it was the price of portrait. The argument below
+is unchanged and still correct: the two packs are ¾-view side-on figures, a ¾-view figure cannot
+look *up*, so on a standard board the two armies cannot face each other. What changed is the other
+side of that trade. Rotating moved the crowding onto the axis that occludes (decision 2), and the
+compensation for *that* was a cell taller than it was wide, which only portrait had the vertical
+room to pay for. Landscape has 1080 px of short edge and no such room. Un-rotating removes the
+crowding rather than paying for it: two armies in two *rows* overlap one layer deep instead of
+eight, and one layer is what a 135 px square cell separates on its own (decision 2, measured).
+
+**Two costs, both real, both accepted rather than solved:**
+
+- **The armies no longer face each other.** White's figures face right and black's face left, so
+  they face past one another rather than across the rank gap. This is the thing the rotation was
+  bought to fix and it is now simply unfixed. It is what every 2D chess app with side-on art
+  already looks like, including the one this project is measured against, and it costs nothing a
+  child has a word for — but it is a regression against this decision's own original reasoning and
+  it should not be discovered later as a surprise.
+- **The board and the duel panel no longer agree about where a colour lives.** Decision 5 puts
+  white on the left and black on the right in the panel, always; the board now puts white at the
+  bottom and black at the top. The Consequences section's "the cut into the panel is spatially
+  continuous" is no longer true of the vertical axis. What holds the rule together instead is the
+  margins: white's graveyard and commander are in the left margin and black's in the right, which
+  is the same left/right convention the panel uses, and each graveyard is anchored vertically to
+  its own army's end of the board (`scripts/board_view.gd`, `graveyard_origin()`). "Left is me" is
+  still learned once; it is now taught by the margins rather than by the board.
+
+**Below, unchanged: the rotation this decision used to specify, and why mirroring is still
+forbidden.** The mirroring prohibition is the part that survives intact and it is the part most
+likely to be broken by accident.
 
 Exactly one pure rotation puts white on the left, and it is fixed, not chosen:
 
@@ -67,7 +106,46 @@ colours; a1 stays dark.
 
 This is a display transform inside `BoardView` only. `RulesAdapter` never learns about it: a1 is a1.
 
-### 2. Cells are taller than they are wide — 135 × 170, board 1080 × 1360.
+### 2. Cells are square — 135 × 135, board 1080 × 1080.
+
+**Reversed 2026-08-20 (Day 8), edited in place. The 170 px pitch is gone.** It existed to
+compensate for decision 1's rotation, and decision 1's rotation is gone; portrait had vertical room
+to spend on it and landscape does not. The board is now 1080 × 1080 — the screen's shorter
+dimension, which is what sets a chessboard's size in either orientation — centred on the long edge
+with a 660 px margin each side.
+
+**The measurement that used to be the hard case no longer exists.** Everything below about the
+packed column was about eight figures stacked one behind another down a single screen column, which
+is what a rotated board does at the start position. Un-rotated, an army stands in two *rows*: the
+only vertical neighbour any figure has is the one piece in the rank in front of or behind it, so
+the stack is one layer deep, not eight. Re-measured on the rendered start position
+(`tests/render_board_states.gd`, shot `01-start`), scanning every file for the run of pure
+background pixels across the rank boundary:
+
+| boundary | gap per file | worst |
+|---|---|---|
+| black back rank's feet → black pawns' heads | 20–21 px | **20 px** |
+| white pawns' feet → white back rank's heads | 22–25 px | 22 px |
+
+**20 px, against the 5 px this decision was defending at ×1.00 on a 170 px pitch.** The board is
+four times clearer than it was on a pitch 35 px taller, because the geometry changed rather than
+the spacing.
+
+**That makes the weapon on the board (decision 4) a weaker part of this than it first looked, and
+the honest version is worth writing down.** The claim that reverting the weapon would reintroduce
+occlusion was made before the un-rotation was on the table, and it was made about the eight-deep
+column. Without the weapon the figure would be baked to the height axis instead of the width one:
+`(135 − 2 − 6) / 773 = 0.1655` against today's `(135 − 2·3) / 922 = 0.1399`, giving a **128 px**
+figure in a 135 px cell rather than 118 — roughly a 7 px gap between ranks instead of 20. That is
+tight, and on the old 170 px pitch it would have been fine. So: **on a square cell the weapon does
+buy real separation, but a one-layer overlap at 7 px is a cramped board rather than the totem this
+decision was written to prevent.** The weapon stays on the board on decision 4's own grounds — it
+is the second identity channel, and the board was unreadable with one — not because occlusion
+requires it.
+
+**Below, unchanged: the tall-cell reasoning and the ×1.00 measurements it turned on.** They are
+kept because the arithmetic about figure height and cell pitch is still the arithmetic anyone
+changing `FIGURE_SCALE` has to redo.
 
 Rotation moves the crowding onto the axis that occludes. At the start position the armies stand in
 two columns of eight, and a standing figure covers the one behind it, eight deep — where in the
@@ -99,14 +177,23 @@ is not a round number picked for tidiness — it is the largest figure the 170 p
 Growing past it would also mean baking frames taller than the cell and drawing them outside it,
 which is the occlusion this decision exists to prevent.
 
+**Edited 2026-08-20 (Day 8): the figure is 129 × 118, and height is no longer the binding
+dimension.** Decision 4 put the weapon on the board, and a held weapon is a bar sticking out
+sideways: the shared union goes 587 × 773 → 922 × 841, so the fit takes `(135 − 2·3) / 922`
+rather than `(170 − 2 − 6) / 773` and the scale drops 0.2096 → 0.1399. Everything above about
+×1.00 and the packed column still holds and simply stopped binding — the column now has ~50 px
+of background between one figure's feet and the head below, where the paragraph above was
+defending 5. That slack is the price of the second type channel, paid in the axis that had the
+room; the axis that did not have room is the one the weapon needed.
+
 ```
                           1080 px
      ┌───┬───┬───┬───┬───┬───┬───┬───┐        cell 135 × 170
-     │ R │ p │   │   │   │ P │   │ r │        figure 123 × 162, ~2 px above
-     │ N │ p │   │   │   │ P │   │ n │          the head, ~6 px under the feet
-     │ B │ p │   │   │   │ P │   │ b │        5 px of background between one
-     │ Q │ p │   │   │   │ P │   │ q │          figure and the next down a column
-     │ K │ p │   │   │   │ P │   │ k │
+     │ R │ p │   │   │   │ P │   │ r │        figure 129 × 118, ~2 px above
+     │ N │ p │   │   │   │ P │   │ n │          the head, ~50 px under the feet
+     │ B │ p │   │   │   │ P │   │ b │        crest 36–43 px, one hue per type
+     │ Q │ p │   │   │   │ P │   │ q │        weapon widens the shared union by
+     │ K │ p │   │   │   │ P │   │ k │          57%, which is what costs the height
      └───┴───┴───┴───┴───┴───┴───┴───┘
        white ──►             ◄── black          board 1080 × 1360
 ```
@@ -126,7 +213,36 @@ Idle breathing and the "ready" pose are **frames in that atlas**, not bone anima
 This does not weaken "every piece is one of our chibi characters". It is the same characters, at the
 scale where a rig buys nothing a baked frame does not.
 
-### 4. Piece type on the board is carried by the head crest alone.
+### 4. Piece type on the board is carried by a coloured head crest and the weapon's outline.
+
+**Edited 2026-08-20 (Day 8). The board has two type channels again, and the second one is the
+weapon rather than the tile glyph this decision spent a day killing.** Everything below about the
+glyph stands — it is still the right call and for the same reasons — but the sentence it ended on,
+"the board carries exactly one type channel", turned out to be a description of a board a person
+could not read. Shown the start position, the first person to see it said in one second: *"all the
+pieces are the same."* They were right, and it is measurable: body, face, helmet, shield and pose
+are identical across all six types, the six 110 px filled-black heads overlap 0.98–1.00 pairwise
+(pawn and knight exactly 1.0000), and the only thing that varied was a ~40 px amber badge whose
+colour was, to a ΔE00 of 0.0, the same amber as the "selected" frame.
+
+Both channels changed in one pass, because they interact:
+
+- **The crest gains a per-type hue and grows 18% → 25% of character height** (ADR-0007 decision 8,
+  which is where the palette and its derivation live). It is 36–43 px at cell scale afterwards
+  against 37–47 before — the same badge, six colours.
+- **The weapon is drawn.** It is the one part of the figure that differs in *outline*, which is the
+  channel that survives at 135 × 170; six of them were sourced for exactly that (ADR-0007 decision
+  5). Cost, measured rather than estimated: the shared union widens 57%, the fit scale drops
+  0.2096 → 0.1399, and every figure loses 27% of its height (decision 2). That cost is why this
+  was declined the first time; what the first estimate left out is that declining it left the board
+  with one channel carried by six identical heads.
+
+`tests/render_board_pieces.gd` mounts the rigs with `show_idle_weapon = true` and forces the
+sword's alpha open after each seek, because the pack keys it to 0 on the first key of
+`Idle Blinking`. Nothing else about the bake changed, the atlas page is the same 2025 × 1020, and
+the board still draws 8 draw calls at the start position.
+
+**Below, unchanged: why the tile glyph is not the second channel.**
 
 **Reversed 2026-08-17 (Day 4), edited in place.** This decision used to add a second type channel:
 the same six `tools/crests.py` shapes drawn again as a 60–68 px glyph on the tile under the figure,
@@ -175,10 +291,12 @@ baked at ×1.00 again (decision 2).
 shared head wearing a swapped crest, so the type is carried by the whole silhouette instead of a
 badge on it. That is future work and nothing in this sprint depends on it.
 
-**Until it exists, the board carries exactly one type channel, and it is ~30 px of crest.** That is
-the risk this ADR's own Context section recorded before Day 4 started, and it is now load-bearing
-rather than hedged: there is no second, independent channel behind it. `tools/crests.py` is
-untouched and still draws the six shapes — the head crest is where they are worn.
+**Until it exists, the board carried exactly one type channel, and it was ~40 px of amber crest.**
+That is the risk this ADR's own Context section recorded before Day 4 started, it stayed
+load-bearing with nothing behind it for four days, and on 2026-08-20 a person confirmed it in one
+sentence. The weapon is now the second channel — see the head of this decision — and the crest is
+six colours rather than one. `tools/crests.py` still draws the same six shapes and the same six
+alphas; the colour is added inside them.
 
 ### 5. Sides are fixed by colour, never by role — on the board and in the duel panel alike.
 

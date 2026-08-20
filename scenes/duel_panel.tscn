@@ -30,7 +30,7 @@ tracks/0/keys = {
 "times": PackedFloat32Array(0, 0.15),
 "transitions": PackedFloat32Array(1, 1),
 "update": 0,
-"values": [0.0, 1080.0]
+"values": [0.0, 1240.0]
 }
 tracks/1/type = "value"
 tracks/1/imported = false
@@ -58,7 +58,7 @@ tracks/0/keys = {
 "times": PackedFloat32Array(0, 0.3),
 "transitions": PackedFloat32Array(1, 1),
 "update": 0,
-"values": [1080.0, 0.0]
+"values": [1240.0, 0.0]
 }
 tracks/1/type = "value"
 tracks/1/imported = false
@@ -116,25 +116,25 @@ mouse_filter = 2
 layout_mode = 0
 offset_left = -32.0
 offset_top = -32.0
-offset_right = 1112.0
-offset_bottom = 1532.0
+offset_right = 1272.0
+offset_bottom = 1112.0
 mouse_filter = 2
 texture = SubResource("GradientTexture2D_panel")
 expand_mode = 1
 
 [node name="White" parent="Frame/Mask/Stage" unique_id=1723939734 instance=ExtResource("3_rig_white")]
-position = Vector2(252, 1115)
-scale = Vector2(0.714, 0.714)
+position = Vector2(483, 930)
+scale = Vector2(0.52, 0.52)
 piece_type = "knight"
 
 [node name="Black" parent="Frame/Mask/Stage" unique_id=1154526512 instance=ExtResource("4_rig_black")]
-position = Vector2(810, 1115)
-scale = Vector2(-0.714, 0.714)
+position = Vector2(893, 930)
+scale = Vector2(-0.52, 0.52)
 
 [node name="Burst" type="Sprite2D" parent="Frame/Mask/Stage" unique_id=1655470302]
 modulate = Color(1, 1, 1, 0)
 z_index = 100
-position = Vector2(700, 900)
+position = Vector2(688, 800)
 scale = Vector2(0.02, 0.02)
 texture = ExtResource("5_burst")
 

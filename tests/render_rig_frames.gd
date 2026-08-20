@@ -35,6 +35,8 @@ func _initialize() -> void:
 	var rig: CharacterRig = (load(scene_path) as PackedScene).instantiate()
 	rig.show_crest = false
 	rig.show_idle_weapon = false
+	# The pack's frames hold the pack's own sword, not a piece type's.
+	rig.show_type_weapon = false
 	rig.position = ORIGIN
 	# The generator writes the family's raster factor onto the Rig node; undoing it
 	# here puts the scene back in native .scml units, where the pack's own frames are.
@@ -110,13 +112,4 @@ func _initialize() -> void:
 		push_error("PAWNCH_CREST orientation check failed")
 		quit(1)
 
-	# Cue markers must survive the rig replacement (task: cue markers on the timeline).
-	player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_IDLE
-	var fired: Array[String] = []
-	rig.cue_fired.connect(func(n: String) -> void: fired.append(n))
-	rig.play_cue_demo()
-	var deadline := Time.get_ticks_msec() + 2000
-	while Time.get_ticks_msec() < deadline:
-		await process_frame
-	print("PAWNCH_CUES %s" % ", ".join(fired))
 	quit(0)

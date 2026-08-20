@@ -25,7 +25,24 @@ look better than a free app with 1M+ installs. The constraints that decide the e
 ## Decision
 
 We build Pawnch in **Godot 4.3+ with GDScript**, exporting to Android only, rendering through
-the **Compatibility (OpenGL ES 3.0) renderer**, in portrait with stretch mode `canvas_items`.
+the **Compatibility (OpenGL ES 3.0) renderer**, in **landscape** with stretch mode `canvas_items`
+and aspect `keep_height`.
+
+**Edited 2026-08-20 (Day 8): this said portrait until Day 8, and the orientation was reversed for
+the duel panel rather than for the board.** A chessboard's cell size is set by the screen's shorter
+dimension and that is 1080 px either way — `1080/8 = 135` in portrait, `1080/8 = 135` in landscape
+— so the board gains nothing at all. What changes is the cutaway: the panel goes from 1080 px of
+width to the full long edge, the width constraint that had forced the figures down to a 0.45 mount
+scale stops binding entirely, and the standing figure goes from 29% of the panel's height to 47%.
+The cutaway is the one thing this project is judged on, so an orientation that only helps the
+cutaway is still the right orientation. The full derivation is in `scripts/duel_panel.gd`, under
+`THE STAGE`.
+
+Two things went with it and are recorded where they belong: the board's quarter-turn rotation and
+the 170 px cell pitch that paid for it, both in
+[ADR-0011](0011-rotated-board-tall-cells-and-baked-pieces.md).
+`window/stretch/aspect` became `keep_height`, which is the landscape counterpart of the
+`keep_width` it was; getting that one backwards letterboxes rather than failing.
 
 Editor-authored animation is the primary content pipeline: the clash is an `AnimationPlayer`
 timeline over a cutout rig, with cue markers on the track that the juice bus subscribes to.

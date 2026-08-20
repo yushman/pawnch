@@ -11,12 +11,25 @@ class_name TurnIndicator
 # deciding, and the game being over -- where the banner is the message and a
 # second thing naming a turn would only compete with it.
 #
-# It draws in the free band above the board, the same 520 px the banner uses,
-# and it is a readout and nothing else: pushed from GameSession, never asking
-# the board or the rules anything, and MOUSE_FILTER_IGNORE so that InputRouter
-# stays the only place a pixel turns into a decision.
+# It draws at the top of the left-hand margin -- one of the two 660 px bands a
+# 1080 px square board leaves on a 2400 px screen since Day 8's landscape flip.
+# The band is white's, and everything of white's is at white's own end of it:
+# the graveyard fills the bottom (y 580..1060) and the commander stands on top
+# of it (y 260..560). This is the 260 px they leave over at the far end, which
+# is the end nothing of white's wants.
+#
+# The game-over banner takes the whole top of this band, commander and all, and
+# this hides itself then -- so the left margin says either whose move it is or
+# how the game ended, never both.
+#
+# It is a readout and nothing else: pushed from GameSession, never asking the
+# board or the rules anything, and MOUSE_FILTER_IGNORE so that InputRouter stays
+# the only place a pixel turns into a decision.
 
-const PANEL := Rect2(330, 175, 420, 190)
+## Centred in the 260 px above the commander in the left band, which runs
+## x = 0..660: (260 - 190) / 2 = 35. Clear of the debug Duel button, which owns
+## the top-left corner out to x = 100.
+const PANEL := Rect2(120, 35, 420, 190)
 const FIGURE_SCALE := 0.85
 const FIGURE_OFFSET := Vector2(-95, 0)
 const MARK_CENTER := Vector2(85, 0)
@@ -90,7 +103,10 @@ func _draw() -> void:
 func _draw_figure() -> void:
 	if board == null or board.atlas_page() == null:
 		return
-	var size := Vector2(135, 170) * FIGURE_SCALE
+	# BoardView.CELL rather than a second copy of it: the cell went 135x170 ->
+	# 135x135 with the un-rotation and a literal here would have drawn the king
+	# stretched by a quarter with nothing failing.
+	var size := BoardView.CELL * FIGURE_SCALE
 	var at := PANEL.get_center() + FIGURE_OFFSET
 	draw_texture_rect_region(board.atlas_page(), Rect2(at - size * 0.5, size),
 		board.figure_region(_color, "king"), Color.WHITE)

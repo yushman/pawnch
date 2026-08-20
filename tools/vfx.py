@@ -18,9 +18,13 @@ SIZE = 512
 OUTLINE_FRACTION = 25 / 840
 OUTLINE = round(SIZE * OUTLINE_FRACTION)
 
-# Hot white-yellow core reads as "impact flash" against the amber crests and the
-# desaturated packs; distinct from FILL in tools/crests.py on purpose so the
-# burst never gets mistaken for a crest.
+# Hot white-yellow core reads as "impact flash" against the desaturated packs. It
+# used to be chosen against a single amber crest; since 2026-08-20 crests are six
+# hues (tools/crests.py FILLS) and this sits dE00 33..83 from five of them and
+# 14.5 from the pawn's lime -- the one pair worth knowing about, left alone
+# because the burst is a two-frame flash at the contact point and the crest is a
+# static badge on a head, and because moving the lime means moving it into the
+# green or into the warm band the board and three of the marks already own.
 FILL = (255, 226, 86, 255)
 
 POINTS = 10

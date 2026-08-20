@@ -31,7 +31,7 @@ Only the ones that constrain a decision, each with a number. "The animation look
 entire product, so the frame budget is the most decision-changing number in this document.
 
 **Target device (the number everything else is measured against).** A 2022 mid-range Android
-phone: Snapdragon 680 / Adreno 610 class GPU, 1080×2400 portrait, 4 GB RAM, Android 12+
+phone: Snapdragon 680 / Adreno 610 class GPU, 2400×1080 landscape, 4 GB RAM, Android 12+
 (Redmi Note 11 / Galaxy A52 class — the primary user's parent's phone, per product analysis).
 Not a flagship, and never measured on one. The **exact physical device used for measurement is
 named in the README** so the numbers mean something.
@@ -48,7 +48,7 @@ so its numbers are optimistic. The budgets below are kept unchanged regardless.
 | Cold start → interactive board | **≤ 3.0 s** | Rules out a splash scene, a loading screen, and any asset streaming architecture. Everything is packed and loaded at boot |
 | Bot move latency | **≤ 1.0 s**, target 300 ms | A greedy one-ply search over the adapter's legal moves is microseconds; the number exists only to forbid anything that would need a background thread ([ADR-0005](adr/0005-capture-greedy-bot-not-a-real-engine.md)) |
 | Draw calls during the clash | **≤ ~60** | Direct consequence of cutout/bone rigging: a PvZ-style character is 10–20 separately transformed parts, so two characters plus VFX plus panel is already most of a sane 2D batch budget on Adreno 610. Constrains how many discrete parts a rig may have, and forbids per-part shaders |
-| Screen sizes | Portrait only, **16:9 to 20:9**, reference 1080×2400 | The duel panel is framed once. Every additional aspect band is a re-framing of the expensive asset. Landscape and tablet are non-goals |
+| Screen sizes | **Landscape only**, **16:9 to 20:9**, reference 2400×1080 | The duel panel is framed once. Every additional aspect band is a re-framing of the expensive asset. Portrait and tablet are non-goals. Reversed from portrait on Day 8 — for the panel, which gains the long edge, not for the board, whose cells are set by the 1080 px short edge either way |
 | Network | **Zero.** No `INTERNET` permission in the manifest at all | Parent-trust requirement from product analysis. Checkable: `aapt dump permissions` must not list `android.permission.INTERNET` |
 | Persistence | **None**, beyond a single boolean | See below |
 | Memory, APK size, battery | **Not a constraint.** "Not embarrassing" is sufficient | Non-goal 15. Stated explicitly so nobody spends a day on it |
@@ -145,7 +145,7 @@ on.
 | **Android audio focus & output** | Incoming call, notification, another app taking focus, or headphones unplugged, all mid-clash | **Never wait on a sound to finish.** SFX are fire-and-forget; on focus loss the clash keeps running silently and finishes normally. A muted phone is the *default* state for a kid on a bus, so the clash must read without audio |
 | **Android lifecycle** — pause/resume, `NOTIFICATION_APPLICATION_PAUSED` / `_RESUMED` | Backgrounding during a clash; killed while a clash plays | On resume, `ClashDirector.finish_now()` and `BoardView.sync(GameState)`. Never resume a clash mid-timeline — the state is already committed, so fast-forwarding is always correct |
 | **Android back button** — `NOTIFICATION_WM_GO_BACK_REQUEST` | Fires at any moment, including mid-clash | Back **during a clash = skip** (same path as tap-to-skip). Back on the board = quit. There is no menu stack to pop, and it must never quit mid-clash — that is the embarrassing version |
-| **Screen sizes** | Portrait 16:9–20:9, reference 1080×2400; Godot stretch mode `canvas_items`, aspect `expand` | The duel panel is framed for the reference aspect. Outside 16:9–20:9 the panel letterboxes rather than re-composing — deliberate, and a non-goal to fix |
+| **Screen sizes** | Landscape 16:9–20:9, reference 2400×1080; Godot stretch mode `canvas_items`, aspect `keep_height` | The duel panel is 1920×1080, the smallest viewport the range guarantees, centred. Outside 16:9–20:9 it pillarboxes rather than re-composing — deliberate, and a non-goal to fix. `keep_height` is the landscape counterpart of the `keep_width` this was until Day 8; backwards, it letterboxes rather than failing |
 
 ## Public interface contract
 

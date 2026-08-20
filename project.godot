@@ -20,11 +20,17 @@ config/quit_on_go_back=false
 
 [display]
 
-window/size/viewport_width=1080
-window/size/viewport_height=2400
+; Landscape, and locked (build-and-deploy spec). 2400x1080 is the target
+; device's own panel; `keep_height` is the landscape counterpart of the
+; `keep_width` this was until Day 8 -- the axis that must survive the supported
+; 16:9-20:9 range is now the short one, and getting it backwards letterboxes
+; rather than failing. orientation=0 is LANDSCAPE, not SENSOR_LANDSCAPE: the
+; phone turned on its side must not turn the game with it.
+window/size/viewport_width=2400
+window/size/viewport_height=1080
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep_width"
-window/handheld/orientation=1
+window/stretch/aspect="keep_height"
+window/handheld/orientation=0
 
 [rendering]
 

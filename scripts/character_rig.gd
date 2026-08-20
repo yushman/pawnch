@@ -20,6 +20,15 @@ const CRESTS := {
 	"king": preload("res://assets/rig/crest_king.png"),
 }
 
+## The per-type weapon, ADR-0007 decision 5: six donor shapes, one per piece type,
+## the same shape on both sides. Unlike the crest -- one procedural file shared by
+## both families -- each family carries its own rasterisation of those six at its
+## own raster factor, so this is a file name resolved against the directory the
+## generated scene's own sword came from, not a preload table like CRESTS: one
+## script drives two families and cannot preload both. tools/import_craftpix.py
+## writes the twelve files and is the only place a donor pack is named.
+const WEAPON_FILE := "weapon_%s.png"
+
 @export var piece_type := "pawn"
 ## Off for the IoU check against the pack's own rendered frames, which have no crest.
 @export var show_crest := true
@@ -28,6 +37,10 @@ const CRESTS := {
 ## of its own for the sword -- this is what sets it -- so off reproduces the pack's own
 ## hidden-sword idle for tools/verify_rig.py's frame comparison.
 @export var show_idle_weapon := true
+## Off for tools/verify_rig.py, which compares against the pack's own rendered
+## frames and those hold the pack's own sword. Same precedent as show_crest:
+## the shipped rig swaps the weapon per piece type, the verifier must not.
+@export var show_type_weapon := true
 
 @onready var _crest: Sprite2D = %Crest
 @onready var _sword: Sprite2D = %Sword
@@ -48,18 +61,34 @@ var _detached_head: Sprite2D
 var _detached_face: Sprite2D
 var _detached_crest: Sprite2D
 var _detach_tween: Tween
+## The weapon the generated scene mounts, captured before the first per-type swap
+## overwrites it. Its path is also what names this rig's own family directory.
+var _pack_weapon: Texture2D
 
 
 func _ready() -> void:
+	_pack_weapon = _sword.texture
 	set_piece_type(piece_type)
 	_crest.visible = show_crest
 	play_state("Idle Blinking")
+	print("PAWNCH_RIG %s crest=%s weapon=%s" % [
+		name, _crest.texture.resource_path.get_file(),
+		_sword.texture.resource_path.get_file()])
 
 
 func set_piece_type(type: String) -> void:
 	piece_type = type
-	if is_node_ready():
-		_crest.texture = CRESTS[type]
+	if not is_node_ready():
+		return
+	_crest.texture = CRESTS[type]
+	# A texture assignment and nothing else: every donor pack puts its weapon on
+	# the same 400x128 canvas at pivot (0, 1) as the Sword being replaced, so the
+	# rasterisation comes out exactly the size this family's own sword.png is and
+	# hangs in the hand at the same grip point. If this ever needs an offset or a
+	# scale, the fault is upstream in tools/import_craftpix.py, not here.
+	if show_type_weapon:
+		_sword.texture = load(_pack_weapon.resource_path.get_base_dir() \
+			.path_join(WEAPON_FILE % type))
 
 
 func play_state(state: String) -> void:
@@ -69,7 +98,7 @@ func play_state(state: String) -> void:
 
 
 # `local_direction` is in this node's own local space, i.e. skeleton-local --
-# scenes/duel_panel.tscn mounts the skeleton at scale=(-0.714, 0.714), so a
+# scenes/duel_panel.tscn mounts the skeleton at scale=(-0.45, 0.45), so a
 # negative local x arrives on screen as positive x: away from the valkyrie.
 func detach_head(local_direction := Vector2(-1.0, -0.35), distance := 900.0, duration := 0.9) -> void:
 	if _detached_head:

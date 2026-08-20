@@ -168,8 +168,17 @@ Longer than the goals, on purpose. Each is a decision with a reason, not a "late
 8. **No IAP, ads, subscriptions or any monetization surface.** Kids app + payments is a
    regulatory project, not a feature.
 9. **No iOS.** Android only, one target device, stated plainly in the README.
-10. **No tablet layout, no landscape.** Portrait phone only. Every extra layout is a re-framing
-    of the duel panel, which is the expensive part.
+10. **No tablet layout, and no *portrait*.** ~~Portrait phone only.~~ **Reversed on Day 8
+    (2026-08-20): the game is landscape phone only, and portrait is the non-goal now.** The
+    reasoning behind the original entry was right and it is what forced the reversal: every extra
+    layout is a re-framing of the duel panel, which is the expensive part — so there is still
+    exactly one layout, and the argument was only ever about *which* one. Landscape wins it because
+    the panel goes from 1080 px of width to the full long edge and the figures go from 29% of the
+    panel's height to 47%. The board gains nothing either way; its cells are set by the screen's
+    shorter dimension, which is 1080 px in both. See
+    [ADR-0001](../docs/adr/0001-godot-4-gdscript-android-only.md) and
+    [ADR-0011](../docs/adr/0011-rotated-board-tall-cells-and-baked-pieces.md).
+    **Tablets are still out**, unchanged and for the original reason.
 11. **No settings screen** beyond a single "skip clashes" toggle. Sane constants, hardcoded.
 12. **No localization.** English strings, and there are roughly twelve of them.
 13. **No analytics or telemetry.** A prototype with ten users is measured by sitting next to

@@ -15,12 +15,14 @@ server and `Viewport.get_texture()` returns null under it. Nothing here passes
 pack art to an image model (licence clause 3.1.1) -- it is all script.
 """
 import argparse
+import glob
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -29,7 +31,8 @@ OUT_DIR = os.path.join(ROOT, "assets", "board")
 PAGE_PNG = os.path.join(OUT_DIR, "pieces.png")
 REGION_JSON = os.path.join(OUT_DIR, "pieces.json")
 
-CELL_W, CELL_H = 135, 170
+CELL_W, CELL_H = 135, 135
+HERO_W, HERO_H = 300, 300
 FRAMES = 6
 COLUMNS = 15  # 15 * 135 = 2025, inside the 2048 page limit
 
@@ -37,14 +40,41 @@ TYPES = ["pawn", "knight", "bishop", "rook", "queen", "king"]
 # The renderer names its output by pack family; the board thinks in colours.
 COLORS = {"white": "valkyrie", "black": "skeleton_warrior"}
 
+# The commander standing at the end of each margin (board-view spec). Neither is
+# a piece and neither is rigged: one still frame each is the whole asset, so it
+# comes straight out of the pack .zip rather than through a second importer
+# (ADR-0009 -- the pipeline is code, not that every asset needs a rig).
+#
+# Chosen for what they say without words. The fallen angel shares the valkyrie's
+# silver-and-white palette and her grey hair, so she reads as that army's own
+# senior rather than as a visitor; the necromancer is the character who would
+# have raised these skeletons, which is an explanation a six-year-old gets for
+# free in a game with twelve strings and no localisation.
+#
+# Swapping either commander is this table and a re-bake. Nothing downstream
+# knows which character it is.
+HEROES = {
+	"white": ("free-fallen-angel",
+	          "Fallen_Angels_1/PNG/PNG Sequences/Idle Blinking/"
+	          "0_Fallen_Angels_Idle Blinking_000.png"),
+	"black": ("necromancer-of-the-shadow",
+	          "Necromancer_of_the_Shadow_1/PNG/PNG Sequences/Idle Blinking/"
+	          "0_Necromancer_of_the_Shadow_Idle Blinking_000.png"),
+}
+DONOR_PACK_DIR = os.path.expanduser("~/Downloads")
+HERO_PAD = 8
+
 # The page held six tile crest glyphs for one afternoon. They are gone with
 # ADR-0011 decision 4's reversal -- the head crest is the only type channel on the
 # board now. What it does carry beside the figures is the four cell marks: they
 # are quads out of this page precisely so they batch with the figures, where
 # Day 4's draw_rect outlines cost +3..6 draw calls.
 FIGURE_REGIONS = len(TYPES) * len(COLORS) * FRAMES
+CREST_REGIONS = len(TYPES) * len(COLORS)
 MARKS = ["move", "capture", "check", "selected", "last_move"]
-REGIONS = FIGURE_REGIONS + len(MARKS)
+# Everything on the 135 grid. The two commanders are 300 px and go on their own
+# strip under it, because they do not divide into the cell.
+REGIONS = FIGURE_REGIONS + CREST_REGIONS + len(MARKS)
 
 # Drawn at 4x and downscaled, because every mark has a curved edge and none of
 # them may show a stair-step next to the figures' own antialiased silhouettes.
@@ -70,13 +100,14 @@ def render_frames(out_dir, godot):
 		cwd=ROOT, capture_output=True, text=True)
 	written = [l for l in proc.stdout.splitlines() if l.startswith("PAWNCH_BAKE wrote ")]
 	for line in proc.stdout.splitlines():
-		if line.startswith("PAWNCH_BAKE"):
+		if line.startswith("PAWNCH_BAKE") and not line.startswith("PAWNCH_BAKE wrote "):
 			print(line)
-	if proc.returncode != 0 or len(written) != len(TYPES) * len(COLORS) * FRAMES:
+	expected = FIGURE_REGIONS + CREST_REGIONS
+	if proc.returncode != 0 or len(written) != expected:
 		sys.stderr.write(proc.stdout + proc.stderr)
 		raise SystemExit("render_board_pieces.gd wrote %d frames, expected %d"
-		                 % (len(written), len(TYPES) * len(COLORS) * FRAMES))
-	return len(written)
+		                 % (len(written), expected))
+	return FIGURE_REGIONS
 
 
 def _mark_move():
@@ -195,14 +226,48 @@ def marks():
 	return out
 
 
+def heroes(packs_dir=DONOR_PACK_DIR):
+	"""One idle frame per commander, out of the pack .zip, fitted to HERO_CELL.
+
+	The same convention the board figures use -- width centred, feet on the
+	bottom pad -- so a commander and the graveyard under it stand on lines that
+	agree. Nothing here goes near an image model (Craftpix clause 3.1.1); it is a
+	crop and a Lanczos resize.
+	"""
+	out = {}
+	for color, (pattern, member) in HEROES.items():
+		zips = sorted(glob.glob(os.path.join(packs_dir, "*%s*.zip" % pattern)))
+		if len(zips) != 1:
+			raise SystemExit("expected one *%s*.zip in %s, found %d"
+			                 % (pattern, packs_dir, len(zips)))
+		with zipfile.ZipFile(zips[0]) as z:
+			with z.open(member) as f:
+				src = Image.open(f).convert("RGBA")
+				src.load()
+		src = src.crop(src.getbbox())
+		room_w, room_h = HERO_W - 2 * HERO_PAD, HERO_H - 2 * HERO_PAD
+		scale = min(room_w / src.width, room_h / src.height)
+		figure = src.resize((max(1, round(src.width * scale)),
+		                     max(1, round(src.height * scale))), Image.LANCZOS)
+		cell = Image.new("RGBA", (HERO_W, HERO_H), (0, 0, 0, 0))
+		cell.alpha_composite(figure, ((HERO_W - figure.width) // 2,
+		                              HERO_H - HERO_PAD - figure.height))
+		print("PAWNCH_BAKE hero %-5s %-28s %dx%d from %s"
+		      % (color, pattern, figure.width, figure.height, os.path.basename(zips[0])))
+		out[color] = cell
+	return out
+
+
 def pack(frame_dir):
 	rows = (REGIONS + COLUMNS - 1) // COLUMNS
 	page_w = COLUMNS * CELL_W
-	page_h = rows * CELL_H
+	grid_h = rows * CELL_H
+	page_h = grid_h + HERO_H
 	page = Image.new("RGBA", (page_w, page_h), (0, 0, 0, 0))
 
 	regions = {"page": "res://assets/board/pieces.png", "cell": [CELL_W, CELL_H],
-	           "frames": FRAMES, "figures": {}, "marks": {}}
+	           "hero_cell": [HERO_W, HERO_H],
+	           "frames": FRAMES, "figures": {}, "crests": {}, "marks": {}, "heroes": {}}
 
 	index = 0
 	for color, family in COLORS.items():
@@ -217,12 +282,32 @@ def pack(frame_dir):
 				index += 1
 			regions["figures"]["%s_%s" % (color, type_name)] = boxes
 
+	# The crest of each piece on its own, in register with the figure above it.
+	# The graveyard dims the body and draws this over it at full colour; without
+	# it, dimming a fallen bishop takes the turquoise that says "bishop" with it.
+	for color, family in COLORS.items():
+		for type_name in TYPES:
+			src = os.path.join(frame_dir, "%s_%s_crest.png" % (family, type_name))
+			x = (index % COLUMNS) * CELL_W
+			y = (index // COLUMNS) * CELL_H
+			page.paste(Image.open(src), (x, y))
+			regions["crests"]["%s_%s" % (color, type_name)] = [x, y, CELL_W, CELL_H]
+			index += 1
+
 	for name, image in marks().items():
 		x = (index % COLUMNS) * CELL_W
 		y = (index // COLUMNS) * CELL_H
 		page.paste(image, (x, y))
 		regions["marks"][name] = [x, y, CELL_W, CELL_H]
 		index += 1
+
+	# The two commanders, on their own strip under the grid: 300 px does not
+	# divide into the 135 cell, and squeezing them in would cost more page than
+	# a strip does.
+	for slot, (color, image) in enumerate(sorted(heroes(DONOR_PACK_DIR).items())):
+		x = slot * HERO_W
+		page.paste(image, (x, grid_h))
+		regions["heroes"][color] = [x, grid_h, HERO_W, HERO_H]
 
 	os.makedirs(OUT_DIR, exist_ok=True)
 	page.save(PAGE_PNG)
@@ -233,11 +318,19 @@ def pack(frame_dir):
 
 
 def verify(page, regions):
-	named = sum(len(v) for v in regions["figures"].values()) + len(regions["marks"])
+	named = (sum(len(v) for v in regions["figures"].values())
+	         + len(regions["crests"]) + len(regions["marks"]))
 	assert named == REGIONS, "region map names %d regions, expected %d" % (named, REGIONS)
 	assert sorted(regions["marks"]) == sorted(MARKS), "marks are %s" % sorted(regions["marks"])
-	assert page.width <= 2048 and page.height <= 1024, "page is %dx%d" % page.size
-	boxes = [b for v in regions["figures"].values() for b in v] + list(regions["marks"].values())
+	assert sorted(regions["crests"]) == sorted(regions["figures"]), "crests do not match figures"
+	assert sorted(regions["heroes"]) == sorted(COLORS), "heroes are %s" % sorted(regions["heroes"])
+	# Was `height <= 1024`, which was a description of the page's then-current
+	# shape rather than a limit: the commander strip takes it to 1110 and the
+	# number that actually matters on an Adreno 610 is 2048 on both axes.
+	assert page.width <= 2048 and page.height <= 2048, "page is %dx%d" % page.size
+	boxes = ([b for v in regions["figures"].values() for b in v]
+	         + list(regions["crests"].values()) + list(regions["marks"].values())
+	         + list(regions["heroes"].values()))
 	for x, y, w, h in boxes:
 		assert x >= 0 and y >= 0 and x + w <= page.width and y + h <= page.height, \
 			"region %s escapes the %dx%d page" % ([x, y, w, h], page.width, page.height)
@@ -270,8 +363,11 @@ def main():
 	ap = argparse.ArgumentParser(description=__doc__)
 	ap.add_argument("--godot", default=os.environ.get("GODOT", "godot"))
 	ap.add_argument("--keep", metavar="DIR", help="write the loose frames here instead of a temp dir")
+	ap.add_argument("--packs", default=DONOR_PACK_DIR, metavar="DIR",
+	                help="directory holding the commander pack .zip files (default: %(default)s)")
 	args = ap.parse_args()
 
+	globals()["DONOR_PACK_DIR"] = args.packs
 	frame_dir = args.keep or tempfile.mkdtemp(prefix="pawnch_board_")
 	try:
 		count = render_frames(frame_dir, args.godot)
@@ -284,7 +380,8 @@ def main():
 
 	print("wrote %s %dx%d (%d KB)"
 	      % (PAGE_PNG, page.width, page.height, os.path.getsize(PAGE_PNG) // 1024))
-	print("wrote %s (%d figure frames, %d marks)" % (REGION_JSON, count, len(MARKS)))
+	print("wrote %s (%d figure frames, %d crests, %d marks, %d heroes)"
+	      % (REGION_JSON, count, CREST_REGIONS, len(MARKS), len(COLORS)))
 
 
 if __name__ == "__main__":
