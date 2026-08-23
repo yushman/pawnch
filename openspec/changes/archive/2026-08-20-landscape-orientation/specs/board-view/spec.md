@@ -1,3 +1,26 @@
+## REMOVED Requirements
+
+### Requirement: The board is rotated a quarter turn clockwise, with white on the left
+
+The rotation existed to fit an 8x8 board into a portrait screen, and it cost what it was always
+going to cost: it put each army in a column eight deep, on the axis where a standing figure
+occludes the one behind it. Landscape removes the reason for it. The board is drawn in the
+standard orientation — files across, rank 1 at the bottom — which is what a child has seen on
+every chessboard, and the two armies become two rows of which only one layer ever overlaps.
+
+The requirement's other half survives and is not being dropped with it: the board MUST still never
+be mirrored, and the rules MUST still know nothing about presentation. Those two clauses are
+re-stated as a requirement of their own below, because they were never about the rotation — an
+earlier draft of this delta claimed the new requirements already carried them, and they did not.
+
+### Requirement: Cells are taller than they are wide
+
+The 135x170 cell was the compensation for the rotation — vertical pitch bought so that a column of
+eight figures did not read as one continuous totem. With the rotation gone the crowding is gone
+with it, and landscape has no vertical room to spend anyway: 1080/8 = 135 in both dimensions.
+Cells are square, and the packed-rank clearance that the pitch used to buy is now a property of
+the figure's own height, measured in the requirement that replaces this one.
+
 ## ADDED Requirements
 
 ### Requirement: The board is square and centred on the long edge
@@ -100,3 +123,31 @@ supposed to deliver it.
 
 - **WHEN** the board and both margins are drawn
 - **THEN** the frame stays within the draw-call budget
+
+### Requirement: The board is presentation only, and it is never mirrored
+
+However the board is arranged to fit a screen, it MUST preserve the position and the standard
+square colours, and it MUST NOT be mirrored. A mirror reflects the position — king and queen
+visually swap files — which any chess-literate adult reads as a broken board. This outlived the
+rotation it was first written against and is not a property of any particular layout.
+
+How the board is drawn MUST remain presentation only. The rules know nothing about it: a1 is a1.
+
+#### Scenario: The position is not reflected
+
+- **WHEN** the starting position is displayed
+- **THEN** the white king is on e1 and the white queen on d1, and the cell showing the king is one
+  file further from the a-file edge than the cell showing the queen — the arrangement a mirror
+  would swap
+
+#### Scenario: Square colours are the standard ones
+
+- **WHEN** any square is displayed
+- **THEN** its colour is the colour standard chess gives it — a1 dark, h1 light — and adjacent
+  squares alternate in both screen directions
+
+#### Scenario: The rules are untouched by the layout
+
+- **WHEN** a move is played
+- **THEN** it is the move the rules see, named by its own square, whatever the board does on screen
+
