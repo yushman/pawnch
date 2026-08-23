@@ -187,15 +187,21 @@ the two bespoke clashes; it has to survive being watched twenty times in one ses
       weapon in colour, cannot give band A away. Band C also had to force the sword's alpha open:
       the pack keys it to 0 through the whole of `Idle Blinking`, which is the same thing ADR-0007
       decision 8 had to do to run its own silhouette test at all.
-- [ ] **B2. Ask a person.** The Day-6 playtester names each of the six from the 110 px silhouettes
-      with no key and no context, then again from the board-scale crest. Record what they said,
-      including the wrong answers, not just the score.
-      *Verify:* the six answers go in the devlog verbatim.
-- [ ] **B3. Act on the verdict.** If two types cannot be told apart, either swap one weapon for one
-      of the three unused donors (cheapest) or fire cut order step 4 — rook and bishop share a
-      generic crest and are told apart by weapon alone. Today is the cheapest day to fire it.
-      *Verify:* whichever was done is written down with the reason; if nothing was needed, that is
-      the result and it gets recorded too.
+- [~] **B2. Ask a person.** **Dropped by decision, 2026-08-23.** The owner will experiment with
+      the assets themselves rather than run the naming test against the current set, so measuring
+      this set is spending a person on art that is about to move.
+      What that costs, said plainly rather than left implied: **nobody has ever named the six from
+      a silhouette.** The one human verdict this ever got was "all the pieces are the same",
+      delivered in a second against the single-channel board, and it is what produced the colour
+      and the weapon. Neither channel has been tested on a person since. ADR-0007 decision 8
+      records the same gap from the other side — the 110 px test is a human judgement and the
+      crest stopped contributing to the silhouette on Day 6 — so the ADR does not claim a pass
+      this task would have had to deliver.
+- [~] **B3. Act on the verdict.** Dropped with B2; there is no verdict to act on. The three unused
+      donor weapons (the skeleton warrior's falchion, the fallen angel's katana, the reaper's
+      crook) and cut order step 4 both stay available, and the knight's spear is still the weakest
+      of the six by the only judgement anyone has made of them — thin, dark, low contrast on a dark
+      panel, and its point occluded in the pose that matters.
 
 ## Block C — the shared strike
 
@@ -297,7 +303,11 @@ the two bespoke clashes; it has to survive being watched twenty times in one ses
 
 ## Block F — on the device
 
-- [ ] **F1. Deploy and play a full game in which every piece type captures something.** That is
+- [x] **F1. Deploy and play a full game in which every piece type captures something.** Done on
+      the Redmi Note 13: `1.e4 a5 2.d4 d5 3.exd5 Qxd5 4.Nc3 Qxg2 5.Bxg2 Bd7 6.Nd5 h6 7.Nxc7+ Kd8
+      8.Qh5`, all six attacker types in one session's logcat, every clash ending `path=natural`.
+      Re-confirmed after the board turned landscape.
+      *(original task text below)* That is
       the day's own definition of done. `tools/deploy.sh`. Force clashes deliberately where the
       bot will not cooperate — a white pawn marched to e6 attacks d7 and f7 and the greedy bot
       takes one of them unless it has something better.
@@ -323,11 +333,20 @@ the two bespoke clashes; it has to survive being watched twenty times in one ses
       updated with a measured delta (63%/60% -> ~68%/72%), decision 7's option (b) marked as
       checked and taken, and the header date line now names the third in-place rewrite.
       **The devlog line is G3's and is not written yet.**
-- [ ] **G2. Both READMEs, in the same commit.** The clash count and which types play what, the
+- [x] **G2. Both READMEs, in the same commit.** Done 2026-08-23, late — this was missed on the
+      day and caught three days later, with both files still claiming two clashes and four types
+      sharing a fallback. Both now carry the three clashes and their lengths, the per-type weapons,
+      the six crest colours, and the re-measured tables. The pass also caught a self-contradiction
+      neither file had noticed: the non-goals list still said "no landscape" a few paragraphs above
+      "it is Android landscape only".
+      *(original task text below)* The clash count and which types play what, the
       per-type weapons, the CI badge or line, and the suite's new check count and duration.
       `README.md` and `README.ru.md` — a Russian README that lags is worse than none.
       *Verify:* `git diff --stat` shows both.
-- [ ] **G3. Devlog entry for the day.** What shipped, what broke, the numbers with the commands
+- [x] **G3. Devlog entry for the day.** Written, also late: the log had jumped straight from
+      Day 6's fixes to Day 8, leaving the weapons, the strike, CI, the crest colours and the
+      restage undocumented.
+      *(original task text below)* What shipped, what broke, the numbers with the commands
       that produced them, the six legibility answers verbatim, and anything a stranger would
       question — including that the strike's frame-timing ritual is deferred to Day 9 with the
       other two clashes.

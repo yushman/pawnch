@@ -180,7 +180,14 @@ Longer than the goals, on purpose. Each is a decision with a reason, not a "late
     [ADR-0011](../docs/adr/0011-rotated-board-tall-cells-and-baked-pieces.md).
     **Tablets are still out**, unchanged and for the original reason.
 11. **No settings screen** beyond a single "skip clashes" toggle. Sane constants, hardcoded.
-12. **No localization.** English strings, and there are roughly twelve of them.
+12. **No localization** — restated rather than deleted, because Day 10 reversed half of it and
+    the half that stands is the important one. The speech bubbles over the two commanders are a
+    corpus of Russian phrases, and a Russian bubble over an English UI is worse than either
+    language alone, so every user-facing string in the app went Russian with them. **The app
+    became Russian; it did not become localised.** No per-locale string tables, no runtime
+    language switch, no localisation mechanism of any kind — there is still exactly one set of
+    strings, it is simply a different one. Code, comments, commits, the specs and `README.md`
+    stay English; `README.ru.md` is still the only Russian document.
 13. **No analytics or telemetry.** A prototype with ten users is measured by sitting next to
     them.
 14. **No Play Store release, no store listing, no Teacher Approved submission, no parental

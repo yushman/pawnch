@@ -30,7 +30,8 @@ const BACK_DEDUPE_MSEC := 250
 @onready var session: GameSession = get_node("../Session")
 @onready var clash: Node = get_node("../DuelPanel")
 @onready var banner: Node = get_node("../GameOverBanner")
-@onready var indicator: Node = get_node("../TurnIndicator")
+@onready var banter: Node = get_node("../HeroBanter")
+@onready var pause_menu: Node = get_node("../PauseMenu")
 @onready var bot: Node = get_node("../GreedyBot")
 
 # The square a drag started from, or "" when no drag is in flight. A press that
@@ -50,15 +51,15 @@ var _last_back_msec := -BACK_DEDUPE_MSEC
 func _ready() -> void:
 	session.clash = clash
 	session.banner = banner
-	session.indicator = indicator
+	session.banter = banter
 	# One line, and cut order step 3 deletes it (ADR-0005).
 	session.bot = bot
 	# Last: attach() draws the opening position and pushes the first turn, so
 	# everything it pushes to has to exist by now.
 	session.attach(board)
-	print("PAWNCH_INPUT board=%s session=%s clash=%s banner=%s indicator=%s bot=%s" % [
+	print("PAWNCH_INPUT board=%s session=%s clash=%s banner=%s banter=%s menu=%s bot=%s" % [
 		board != null, session != null, clash != null, banner != null,
-		indicator != null, bot != null])
+		banter != null, pause_menu != null, bot != null])
 
 
 # The cold-start budget is "board on screen and taking taps", not "process
@@ -145,9 +146,24 @@ func _press(at: Vector2) -> void:
 	if session.is_frozen():
 		clash.finish_now("tap")
 		return
+	# Layout only, and answered before everything else so that they are dead in
+	# exactly one way rather than dead only on a board that is still in play: a
+	# tap resolves to a control and the control does nothing with it (board-view
+	# spec). There is no pause state to enter and no history to take a move off.
+	var control := board.control_at(_local(at))
+	if control != "":
+		print("PAWNCH_CONTROL %s does_nothing=true" % control)
+		return
 	if session.is_over():
 		if banner.restart_hit(at):
 			session.restart()
+		elif banner.close_hit(at):
+			banner.dismiss()
+		else:
+			# The result is still recoverable once the panel has been put away:
+			# a tap anywhere else brings it back, and nothing else on a finished
+			# board wants that tap (game-outcome spec).
+			banner.reopen()
 		return
 	var square := _square_at(at)
 	# Read before the tap, which re-selects the same square and would answer

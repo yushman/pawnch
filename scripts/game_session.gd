@@ -21,8 +21,11 @@ var clash: Node
 ## Duck-typed: anything with `show_outcome(outcome, winner)` and
 ## `hide_outcome()`. Null headless.
 var banner: Node
-## Duck-typed: anything with `set_state(state, color)`. Null headless.
-var indicator: Node
+## The speech bubbles (hero-banter spec). Duck-typed: anything with
+## `say(side, group, delay)`, `clear()` and `reset()`. Null is a session that
+## says nothing, which is what every check that is not about the bubbles runs
+## in, and what the renders run in unless they ask for one.
+var banter: Node
 ## The opponent (ADR-0005). Duck-typed: anything with `color` and
 ## `choose(rules) -> String`. Null is the two-human session Days 1-5 were, and
 ## it must stay a session that changes nothing -- that is what keeps cut order
@@ -32,6 +35,11 @@ var bot: Object
 ## player's move reads as the board twitching twice rather than as an opponent
 ## moving. Zeroed by the suite, which would otherwise pay it once per bot move.
 var bot_pause_sec := 0.35
+## Presentation only, and the whole of the second clock: how long after the
+## opponent's line the player's own lands. Two lines arriving on one frame read
+## as two things shouting; the opponent's first and the player's a beat later
+## reads as a reply, which is the only reason there are two voices.
+var banter_reply_beat_sec := 0.45
 
 # Emitted when a move the bot played has finished being presented. play_move()
 # is synchronous and its presentation is not, so this is how the turn below
@@ -66,11 +74,18 @@ var _winner := ""
 # on top of one that is running.
 var _in_bot_turn := false
 var _reply_presenting := false
+# What has happened to each side since that side last spoke, which is what the
+# bubble's situation is judged over -- never the last move alone. The player is
+# spoken to at the start of its own turn, so a piece it took is two plies old by
+# then and a last-move-only reading would make its "took" group unreachable
+# altogether. Cleared for a side the moment that side speaks.
+var _since_spoke := {"white": {}, "black": {}}
 
 
 func attach(view: BoardView) -> void:
 	board = view
 	_sync_board()
+	_speak(false)
 
 
 func fen() -> String:
@@ -140,7 +155,11 @@ func restart() -> void:
 	_captures = []
 	_last_move = []
 	_frozen = false
+	_since_spoke = {"white": {}, "black": {}}
+	if banter != null:
+		banter.reset()
 	_sync_board()
+	_speak(false)
 	print("PAWNCH_RESTART turn=%s status=%s fen=%s" % [_turn, _rules.status(), _rules.fen()])
 
 
@@ -154,7 +173,11 @@ func load_fen(new_fen: String) -> void:
 	_captures = []
 	_last_move = []
 	_frozen = false
+	_since_spoke = {"white": {}, "black": {}}
+	if banter != null:
+		banter.reset()
 	_sync_board()
+	_speak(false)
 
 
 # One tap, already resolved to a square by InputRouter. "" is a tap off the board.
@@ -210,6 +233,14 @@ func play_move(uci: String, tap_usec := 0) -> bool:
 	# have already answered. `_in_bot_turn` is true for exactly the move the
 	# opponent plays, so the two cases are the same line.
 	_last_move = [uci.substr(0, 2), uci.substr(2, 2)] if _in_bot_turn else []
+	# The ledger the bubble's situation is read off. Written here, on the commit,
+	# because this is the one place a capture is known -- and because a side is
+	# spoken to at a moment that can be two plies away from the move it is about.
+	# `_turn` has already flipped, so it is the side that was just taken from and
+	# the attacker is the side that did the taking.
+	if not capture.is_empty():
+		_since_spoke[capture["attacker"]]["took"] = true
+		_since_spoke[_turn]["lost"] = true
 	# `last_move` is appended rather than woven in, so anything reading the line
 	# by its leading fields still does. It is what the device pass points at when
 	# it claims the reply is marked.
@@ -272,46 +303,60 @@ func _present(capture: Dictionary, tap_usec: int) -> void:
 	var reply_due: bool = bot != null and _turn == bot.color
 	if capture.is_empty() and not reply_due:
 		_sync_board()
+		_speak(false)
 		return
 
 	_frozen = true
 	_push_marks()
-	_push_turn()
 	if capture.is_empty():
 		_sync_board()
 	else:
 		await _present_capture(capture, tap_usec)
+	var replied := false
 	if reply_due:
-		await _bot_turn()
+		replied = await _bot_turn()
+	# Input comes back first and the lines land after it: the beat between the
+	# two bubbles is presentation and must not be another stretch of dead screen.
 	_frozen = false
+	_speak(replied)
 
 
 # The opponent's turn, start to end. It is over when this returns, whether it
-# moved or not, so the freeze above always comes back down.
-func _bot_turn() -> void:
+# moved or not, so the freeze above always comes back down. Returns whether it
+# actually played something, which is the only thing that decides whether it has
+# anything to say.
+func _bot_turn() -> bool:
 	# It never moves on a finished game and never moves out of turn: the outcome
 	# is only true once the presentation above has synced the board, so this is
 	# read here and not before the pause.
 	if bot == null or is_over() or _turn != bot.color or _in_bot_turn:
-		return
+		return false
 	_in_bot_turn = true
 	if bot_pause_sec > 0.0 and is_inside_tree():
 		# ignore_time_scale: a hitstop still running from the player's clash
 		# must not stretch the pause into a hang.
 		await get_tree().create_timer(bot_pause_sec, true, false, true).timeout
 	var uci: String = bot.choose(_rules)
+	var moved := true
 	if uci == "" or not play_move(uci):
+		moved = false
 		print("PAWNCH_BOT refused move=%s fen=%s" % [uci, _rules.fen()])
 	elif _reply_presenting:
 		# Its move captured and the clash is still running. play_move() is
 		# synchronous by design, so the presentation reports back by signal.
 		await reply_presented
 	_in_bot_turn = false
+	return moved
 
 
 # Input is already frozen, the clash plays, and only then is the board brought
 # into agreement with the position.
 func _present_capture(capture: Dictionary, tap_usec := 0) -> void:
+	# The clash owns the screen: whatever either commander was saying goes now,
+	# and nothing new is said until _sync_board() below has brought the board
+	# into agreement with the position (hero-banter spec).
+	if banter != null:
+		banter.clear()
 	print("PAWNCH_CLASH start fen=%s board=%s" % [_rules.fen(), _board_placement()])
 	if clash != null:
 		await clash.play_capture(
@@ -349,6 +394,12 @@ func _refresh_outcome() -> void:
 	# A mate is a check, so the attacked king stays marked under the banner.
 	_check_square = _king_square(_turn) if status != "in_play" and _outcome != "stalemate" \
 		else ""
+	# Read off the status this function already asked for rather than asking
+	# again -- status() is a full legal-move generation and the desync smoke runs
+	# twelve thousand of them. A mate is not recorded: nobody speaks over an
+	# ending.
+	if status == "check":
+		_since_spoke[_turn]["check"] = true
 	if is_over():
 		print("PAWNCH_OUTCOME outcome=%s winner=%s fen=%s" % [_outcome, _winner, _rules.fen()])
 
@@ -375,16 +426,60 @@ func _push_marks() -> void:
 		board.set_marks(_selected, _destinations, _captures, _last_move)
 
 
-# Whose turn it is, pushed the same way the banner is: the indicator is told,
-# and never asks. It follows the rules rather than the board, so it names the
-# opponent from the moment the player's move is committed -- including while
-# that move's clash is still playing over a deliberately stale board.
+# Whose turn it is, pushed the same way the banner is: the board is told, and
+# never asks. It lights that colour's commander (board-view spec).
+#
+# **Pushed from _sync_board() and from nowhere else, which is a change from the
+# turn card this replaced.** The card named the opponent from the instant the
+# player's move was committed, on purpose, because it was a separate panel and
+# could tell the truth over a board that was still stale. The commander is *in*
+# the same picture as the board, so lighting the replying side while the clash
+# is still playing out the move before it would be one element of a stale frame
+# quietly running ahead of the rest. The emphasis now moves when the board does.
 func _push_turn() -> void:
-	if indicator == null:
+	if board != null:
+		board.set_active_color("" if is_over() else _turn)
+
+
+# **Two clocks, not one, and this is the whole of them** (hero-banter spec).
+#
+# The player is spoken to *before* its move: its line lands when the turn passes
+# to it and stands while it thinks. The opponent is spoken to *after* its own
+# move, clash included, and its line stays up once the move is over -- it chooses
+# in 39-53 ms and pauses 350, so a line tied to its turn would be gone before
+# anyone looked at it. Nothing here touches when it moves or what it plays
+# (ADR-0005); this is only when it is quoted.
+#
+# Both lines may stand at once, which is the point of having two voices, but they
+# never arrive together: the opponent's lands on this frame and the player's a
+# beat later, so the pair reads as a reply rather than as two things shouting.
+#
+# `replied` is whether the opponent actually played in the turn that just ended.
+func _speak(replied: bool) -> void:
+	if banter == null:
 		return
+	# The ending belongs to the two commanders, their crown and their spear.
 	if is_over():
-		indicator.set_state("over", "")
-	elif bot != null and _turn == bot.color:
-		indicator.set_state("opponent", _turn)
-	else:
-		indicator.set_state("player", _turn)
+		banter.clear()
+		return
+	var beat := 0.0
+	if replied:
+		_say("black" if _turn == "white" else "white", 0.0)
+		beat = banter_reply_beat_sec
+	_say(_turn, beat)
+
+
+func _say(side: String, delay: float) -> void:
+	banter.say(side, _situation(side), delay)
+	_since_spoke[side] = {}
+
+
+# Which group `side` is spoken to out of, judged over everything since it last
+# spoke rather than over the last move. Check first, then having lost a piece,
+# then having taken one: a cheerful taunt on the move after losing a queen reads
+# as a bug, and a king under attack outranks both.
+func _situation(side: String) -> String:
+	for group in ["check", "lost", "took"]:
+		if _since_spoke[side].get(group, false):
+			return group
+	return "idle"

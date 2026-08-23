@@ -1,0 +1,83 @@
+{
+  "_comment": "Bubble lines, per side and per situation (hero-banter change). Russian on purpose: the app speaks one language and has no localisation mechanism -- see docs/product-analysis.md non-goal 12, restated rather than deleted. Written and read once, shipped as data; nothing is generated at runtime, because the app has no network. Every line is short enough for a six-year-old to read in the time a bubble is on screen, carries no adult irony, no insult a child should not repeat, and never mocks the player for losing -- the bot hangs pieces on purpose (ADR-0005) and the child will be behind sometimes. `check` takes priority over the other three situations.",
+  "_longest": {
+    "white": {
+      "idle": 24,
+      "lost": 21,
+      "took": 20,
+      "check": 22
+    },
+    "black": {
+      "idle": 25,
+      "lost": 25,
+      "took": 27,
+      "check": 26
+    }
+  },
+  "white": {
+    "_who": "the fallen angel -- the player's own commander. Dry, teasing, needles the necromancer rather than cheering the child on.",
+    "idle": [
+      "Он опять хвастается.",
+      "Ну что, разберём костяк?",
+      "Слышал? Он нервничает.",
+      "Покажем ему?",
+      "Только не зевай, как он.",
+      "Он боится. Я вижу.",
+      "Твой ход. Он там ноет.",
+      "Спокойно. У нас план."
+    ],
+    "lost": [
+      "Ай! Ну всё, он попал.",
+      "Одолжили. Заберём.",
+      "Запомним и вернёмся.",
+      "Он ещё пожалеет.",
+      "Это была разминка."
+    ],
+    "took": [
+      "Минус одна косточка!",
+      "Слышишь, как гремит?",
+      "Собирай давай!",
+      "Вот это по-нашему!",
+      "Кто там хвастался?"
+    ],
+    "check": [
+      "Не паникуем. Паникуем!",
+      "Король, назад!",
+      "Он до нас добрался.",
+      "Так, прикрой короля!"
+    ]
+  },
+  "black": {
+    "_who": "the necromancer -- the opponent. A boastful villain who is not very good at it, and knows it half a second too late.",
+    "idle": [
+      "Я это предвидел. Почти.",
+      "Скелеты, не подведите!",
+      "Так, где я остановился...",
+      "У меня их много. Очень.",
+      "Ходи-ходи, я подожду.",
+      "Опять ты? Ну ладно.",
+      "Сейчас будет больно. Мне.",
+      "Я всё продумал. Кажется."
+    ],
+    "lost": [
+      "Он мне ещё нужен был!",
+      "Запчасти! Где запчасти?",
+      "Это не считается!",
+      "Я нарочно. Правда.",
+      "Соберу обратно, не жалко."
+    ],
+    "took": [
+      "Спасибо за косточку!",
+      "Один есть. Осталось много.",
+      "Не смотри так, сам виноват.",
+      "В коллекцию!",
+      "Я же предупреждал!"
+    ],
+    "check": [
+      "Так, стоп. Это шах?!",
+      "Я не готов! Я не готов!",
+      "Кто пустил его так близко?",
+      "Король, беги! Пожалуйста!"
+    ]
+  }
+}

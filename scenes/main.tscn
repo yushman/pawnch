@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3 uid="uid://bxqmc0y3vqfgk"]
+[gd_scene load_steps=10 format=3 uid="uid://bxqmc0y3vqfgk"]
 
 [ext_resource type="Script" path="res://scripts/frame_probe.gd" id="1_probe"]
 [ext_resource type="PackedScene" path="res://scenes/duel_panel.tscn" id="2_panel"]
@@ -6,8 +6,9 @@
 [ext_resource type="Script" path="res://scripts/game_session.gd" id="4_session"]
 [ext_resource type="Script" path="res://scripts/input_router.gd" id="5_input"]
 [ext_resource type="Script" path="res://scripts/game_over_banner.gd" id="6_banner"]
-[ext_resource type="Script" path="res://scripts/turn_indicator.gd" id="7_turn"]
+[ext_resource type="Script" path="res://scripts/pause_menu.gd" id="7_menu"]
 [ext_resource type="Script" path="res://scripts/greedy_bot.gd" id="8_bot"]
+[ext_resource type="Script" path="res://scripts/hero_banter.gd" id="9_banter"]
 
 [node name="Main" type="ColorRect"]
 anchors_preset=15
@@ -31,6 +32,19 @@ grow_vertical=2
 mouse_filter = 2
 script=ExtResource("3_board")
 
+; The two speech bubbles, in the bands the margins reserve above each commander.
+; Directly after the board and before everything else, so a clash, a pause menu
+; and a game-over banner all cover a bubble rather than the other way round.
+[node name="HeroBanter" type="Control" parent="."]
+layout_mode = 1
+anchors_preset=15
+anchor_right=1.0
+anchor_bottom=1.0
+grow_horizontal=2
+grow_vertical=2
+mouse_filter = 2
+script=ExtResource("9_banter")
+
 [node name="Session" type="Node" parent="."]
 script=ExtResource("4_session")
 
@@ -39,16 +53,6 @@ script=ExtResource("5_input")
 
 [node name="GreedyBot" type="Node" parent="."]
 script=ExtResource("8_bot")
-
-[node name="TurnIndicator" type="Control" parent="."]
-layout_mode = 1
-anchors_preset=15
-anchor_right=1.0
-anchor_bottom=1.0
-grow_horizontal=2
-grow_vertical=2
-mouse_filter = 2
-script=ExtResource("7_turn")
 
 [node name="DuelPanel" parent="." instance=ExtResource("2_panel")]
 
@@ -62,9 +66,21 @@ grow_vertical=2
 mouse_filter = 2
 script=ExtResource("6_banner")
 
-; Top-left, in the 180 px strip left of white's commander. Both margins are
-; composed now -- commander, turn indicator, graveyard down the left and
-; graveyard, commander down the right -- and every other corner is occupied by
+; Layout only and opened by nothing (board-view spec). It sits above the banner
+; in the tree for the day it is wired, so a paused game covers a finished one
+; rather than the other way round.
+[node name="PauseMenu" type="Control" parent="."]
+layout_mode = 1
+anchors_preset=15
+anchor_right=1.0
+anchor_bottom=1.0
+grow_horizontal=2
+grow_vertical=2
+mouse_filter = 2
+script=ExtResource("7_menu")
+
+; Top-left corner, above the pause and take-back controls, in the band Day 9
+; cleared when the turn card was deleted. Every other corner is occupied by
 ; something a player is meant to read. It was bottom-right and then bottom-left,
 ; and each of those landed on top of one: the restart button, then the fourth
 ; row of white's graveyard. Neither failed a check; both were obvious in a frame.
@@ -75,6 +91,6 @@ offset_left = 10.0
 offset_top = 14.0
 offset_right = 90.0
 offset_bottom = 70.0
-text = "Duel"
+text = "Дуэль"
 
 [connection signal="pressed" from="DebugButton" to="DuelPanel" method="play"]

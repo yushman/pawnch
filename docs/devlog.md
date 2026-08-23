@@ -496,7 +496,159 @@ duel panel, not the clash. It is filed as its own dated entry because it is a di
 because what it records is a reversal rather than progress along the plan.
 
 **A note on where this text was found.** These sections were appended to the end of the file over
-the course of the day, and the end of the file was inside `## Ideas for later`. The entire day's
+the course of the day, and the end of the file was inside `## 2026-08-20 — Day 9: the screen-reading pass, and the mark that was the only round thing
+
+The `board-marks-and-hud-layout` change. Its whole content is five notes from one person looking
+at yesterday's landscape build, which turned out to be worth more than anything the suite said in
+the same week — every one of the five was true in a rendered frame and invisible to 209 green
+checks.
+
+### The capture mark
+
+The complaint that started it: **the capturable-piece mark was a red ring, and it was the only
+round mark on a board that otherwise speaks in squares.** Four idioms were in play — a rounded
+frame for the selection, a soft blob for a quiet destination, a ring for a takeable piece, corner
+brackets for the opponent's last move — and the ring both stood outside the family and collided
+with the brackets on every square that carried both, which is every square the opponent moves a
+piece the player can then take.
+
+It is now a square frame in the bracket family, and where it sits was decided from rendered
+candidates rather than from reasoning. Two treatments were drawn over the actual frame the
+complaint came from:
+
+- **Inset — the red frame *inside* the violet brackets, at 20 px.** Clean separation, and rejected
+  on sight: it puts a red box across the figure's face and over the head crest, which is the
+  board's only channel for what the piece is.
+- **Flush to the cell edge, 7 px stroke, 0..8.** Taken. The brackets sit at 9..16, so the two
+  leave a 2 px gap of bare square between them, and a cell carrying both reads as a red border
+  with violet corner ticks inside it rather than as one thick two-tone edge. Verified on the
+  phone: `docs/media/day9-capture-frame-device.png` is b2 selected with the bishop on a3 carrying
+  the capture frame *and* the last-move brackets, plus two destination blobs and the selection
+  frame — four marks in one frame, nothing ambiguous.
+
+The three edge marks are now one shape at three insets: capture at 0, selection at 4, last move at
+9. The capture frame and the selection frame overlap by construction and that is safe rather than
+lucky — a capturable piece belongs to the other side, so the two can never land on one cell.
+
+### The turn card is gone
+
+Deleted outright rather than moved: moving it would have kept two visual languages for one fact.
+Whose move it is is now said by the commander in that colour's margin — **full height, full
+colour, standing in a pool of gold light, against an opponent at 0.78 scale and dimmed.** Three
+channels, none of them hue, because the two commanders are already two colours and a colour-only
+treatment says nothing about which of them is the subject.
+
+**One behaviour reversed with it, and it is the interesting part.** The card named the opponent
+from the instant the player's move was committed, on purpose, because it was a separate panel and
+could tell the truth over a board that was still stale. The commander is *in* the same picture as
+the board, so lighting the replying side while the clash still plays the move before it would be
+one element of a stale frame quietly running ahead of the rest. `GameSession._push_turn()` is now
+called from `_sync_board()` and nowhere else. The suite check that asserted the old behaviour was
+rewritten to assert the new one and says so in its own comment.
+
+### Two things the frame taught that the code did not
+
+- **`draw_texture_rect_region` multiplies its modulate.** The pedestal started as the destination
+  blob's own region tinted gold. Gold times that blob's cyan is `(0.22, 0.59, 0.25)` — a pale
+  green, on a background that is already green. It rendered as nothing at all and no check could
+  have caught it. The pedestal is now its own flat-coloured region on the atlas page.
+- **A glow drawn *behind* a figure is mostly behind the figure.** At an anchor of 0.62 the
+  commander stood on the middle of the pedestal and hid everything but its fringe. 0.45 — a little
+  under half of it above the feet line — is what the frame needed, and that overhang then became a
+  layout constraint: at 20 px of pad the light under black's boots was cut off by the bottom of
+  the screen, which the suite caught as a box leaving the viewport.
+
+### The margins, re-laid out once
+
+The person's third note was that both commanders sit too high for a speech bubble to fit above
+them — the bubble being `hero-banter`, a separate change that may never be built. This change
+reserves the room and draws nothing.
+
+**The graveyard paid for it: four columns of four became five columns of three.** Sixteen slots
+for the fifteen pieces a side can lose was one spare slot bought with 120 px of height, in a band
+that has 1080 to spend on a graveyard, a commander and the room above it. Fifteen is a hard
+ceiling rather than a hope — a side has sixteen pieces and the king is not among the ones
+`captured()` counts.
+
+The two margins order their contents differently and that is deliberate. White's band reads down
+as room, commander, graveyard against the bottom; black's as graveyard against the top, room,
+commander. Either way the room is directly above the commander and it is **275 px on both sides**,
+derived rather than written down: it is what a band has left once the graveyard, the commander,
+the pedestal's overhang and the two pads come out of it. Ordering both bands the same way would
+have been visually symmetric and would have cost the colour echo — white's dead low because
+white's army is at the bottom of the board, black's high — which is the only thing on screen tying
+"the left margin is white's" to the board.
+
+Measured layout, 2400x1080: white commander y 275..575, white graveyard y 700..1060 x 30..630;
+black graveyard y 20..380, black commander y 655..955; controls x 20..160 at y 275..415 and
+435..575. Both commanders moved down — white by 15 px, black by 135.
+
+### Controls that do nothing, said out loud
+
+Pause and take-back are drawn, placed, 140 px square — wider than a board cell, which is the
+smallest thing this game asks a finger to hit — and **they do nothing**. `InputRouter` resolves a
+tap to one of them and answers by printing. There is no pause state and no move history behind
+them. The pause menu they will open exists as a layout that only `tests/render_board_states.gd`
+can put on screen. It is in both READMEs as well as here, because a dead control in front of a
+playtester silently changes what the session measured.
+
+Both glyphs are baked into `pieces.png` rather than drawn with `draw_rect`, for the reason Day 4
+measured: an unbatched primitive breaks the run of textured quads either side of it. The
+take-back arrow took three attempts — an arrowhead placed near the end of a stroke reads as
+pointing wherever its longest edge happens to lie, and the first two came out as a convincing
+*redo* arrow. It is built from the tangent now.
+
+### The ending moved to the middle
+
+The banner used to occupy the top of the left margin, over white's commander and the turn card,
+and that placement was an argument about which margin furniture was expendable. The argument went
+away: it is now 1000x810 centred inside the board's own 660..1740, so it covers neither graveyard
+and neither commander, and it closes — a cross puts it away, the game stays over underneath, and a
+tap anywhere brings the result back.
+
+**The crown and the spear are not new art and could not be** (ADR-0009). The king's crest is a
+crown and the knight's weapon is a spear, both already on the page: the crown is
+`crests["<winner>_king"]` scaled up, the spear is a sub-rectangle of the knight's own figure
+region, measured off the page by walking its alpha rows rather than guessed — white's points right
+out of the body at rows 95..113, black's points left at rows 90..108, so neither is mirrored and
+the spear enters from the winner's own side of the panel. The crown's placement is per colour,
+because the two crests are not in the same place on their cells: one shared fraction put black's
+crown 64 px left of the necromancer's head and into the close button.
+
+### Numbers
+
+- Suite **218/218 green**, floor raised 209 → 218, 55 s. Three skip sweeps pass.
+- **`draw_calls_max=4`** for a full board with both margins, marks up, on the device — down from
+  8–10, and the difference was the turn card drawing its own panel and figure. The commanders, the
+  graveyards, the pedestal and the two controls are all regions on the same atlas page.
+  `WINDOW=12 tools/frametime.sh` on a fresh launch. A board measured straight after a clash still
+  reports 29: the duel panel does not give its ~25 back when it closes, which is a known item.
+- Atlas page 2025x1110 → **2025x1245**, 92 regions (72 figure frames, 12 crests, 5 marks,
+  2 controls, 1 hud, 2 heroes). `godot --headless --import` after it, or `load()` returns the
+  stale texture.
+
+### The trap that bit a fourth renderer
+
+`tests/render_board_states.gd` was handing back the SubViewport's texture as it stood *before* the
+frame was drawn. It did not lose one shot, it lost nine — everything from the first clash onward
+came out as one frozen duel frame under nine different names, and the `draw_calls=` line printed
+beside each of them agreed with the lie. It is intermittent, which is worse. `await
+RenderingServer.frame_post_draw` before `get_image()` is the fix, and it is the same fix
+`tools/bake_board_atlas.py` needed when a valkyrie king came out wearing the queen's crest. Fourth
+renderer, same trap.
+
+### What did not get verified on the phone, and why
+
+The board, both turns, the capture-mark collision, the controls and a clash were all checked on the
+Redmi Note 13. **The game-over banner was not.** There is no debug path to force an outcome on the
+device, and the capture-greedy bot does not walk into a short mate — three attempts at scholar's
+mate ended with it taking the bishop, taking the queen and pushing the f-pawn. Its king wandered to
+d6 in the open and still could not be mated inside the move budget. The banner is verified in
+`tests/render_board_states.gd` renders at the device's exact resolution and on the same
+Compatibility renderer, which is close but is not the phone, and saying so is cheaper than
+pretending otherwise. It is the first thing to check on the next device pass.
+
+## Ideas for later`. The entire day's
 log — the pack adoption, the licence, the silhouette test, the whole import — sat under a heading
 meaning "not doing this now". Moved here and the heading returned to the bottom, empty. Worth
 recording as its own small lesson: appending to the end of a document is not the same as adding to
@@ -2692,9 +2844,15 @@ the whole time. The pattern is now explicit enough to be a rule: **look at the f
 
 ### Open, and honest about it
 
-- **The legibility test with a person is half-done.** The verdict arrived in one second and was
-  damning, which is worth more than a score, but the six-answer naming test on the new two-channel
-  sheets has not been run.
+- **The legibility test with a person is half-done, and on 2026-08-23 it was dropped.** The
+  verdict arrived in one second and was damning — "all the pieces are the same", against the
+  single-channel board — which is worth more than a score and is what bought the colour and the
+  weapon. The six-answer naming test on the new two-channel sheets was never run, and will not be:
+  the owner is going to experiment with the assets themselves, so measuring a set that is about to
+  move spends a person on nothing. **Recorded rather than quietly closed, because it leaves a real
+  hole: nobody has ever named the six from a silhouette, and the sheets (`tools/legibility_sheet.py`)
+  exist and take a minute to regenerate whenever there is a set worth judging.** ADR-0007 decision 8
+  states the same gap from its own side and claims no pass.
 - **The crest generator still diverges from the shipped rigs.** `tools/import_craftpix.py` emits a
   uniform crest scale; the shipped `.tscn` carry a hand-tuned non-uniform one from Day 6, now
   multiplied by 25/18. Running the importer reverts the crest, and the `KNOWN DIVERGENCE` comment
@@ -2877,6 +3035,136 @@ commander opposite its own, and the two ends of `captured()`. The last of those 
 run and it was a real bug, not a bad pin — `_start_census` was built in `_ready()`, so any
 `BoardView` that never enters the tree reported that nothing had ever been captured. It is built on
 first use now. That is what the check was for.
+
+## 2026-08-20 — Day 9b: the commanders started arguing, and the app changed language
+
+`hero-banter`. A speech bubble over the commander with something to say, filling the 275 px band
+`board-marks-and-hud-layout` reserved above each of them yesterday, and a corpus of 44 Russian
+lines behind it: 8 ordinary / 5 after a loss / 5 after a capture / 4 in check, **per side**.
+
+### Two voices, not one list
+
+The corpus was rewritten once before a line of code existed, because the first pass came back as a
+greeting card — "Отлично!", "Я верю в тебя". The fix was not stronger adjectives. It was two
+things: the jokes are *specific* (the necromancer has spare parts, loses track of his own plan, and
+works out he is in trouble half a second late), and the two commanders **talk about each other**
+rather than to the child. White is the fallen angel, the player's own commander, dry and needling.
+Black is the necromancer, a boastful villain who is not very good at it. Because the bubble appears
+over whichever side has just been given something to say, consecutive turns read as a running
+argument, which does more work than any single line could.
+
+### Two clocks, and why one would not have done
+
+The player is spoken to **before** its move: the line lands when the turn passes to it and stands
+while it thinks. The opponent is spoken to **after** its own move, clash included. That asymmetry
+is not a nicety — the bot chooses in 38–41 ms and pauses a deliberate 350, so a line tied to its
+turn would appear and vanish inside four hundred milliseconds and would never once be read. Nothing
+about when it moves or what it plays changed (ADR-0005); only when it is quoted.
+
+Both bubbles are up at once for most of a turn, which is the point. What they may not do is arrive
+together, so `say()` takes a beat and `GameSession` hands the opponent's line 0.0 and the player's
+`banter_reply_beat_sec` = 0.45. Measured on the phone rather than asserted: a 75 s `screenrecord`
+split with `ffmpeg -vf fps=30` and each margin's bubble box sampled as a mean grey level per frame
+— black's rises at frame 20 of the window, white's at frame 33, **13 frames = 0.433 s apart** at a
+configured 0.45. The rise takes 4 frames (0.13 s against `RISE_SEC` 0.12) and the whole life of a
+bubble is 4.2 s (0.12 + 3.6 + 0.5), fading out on its own with nothing left behind.
+
+    ffmpeg -ss 18.6 -t 1.8 -i banter.mp4 -vf fps=30,scale=1200:-1 beat/b%03d.png
+    # then per frame: crop=300:40:20:82 (white's box) and crop=290:70:890:240 (black's), scale=1:1
+
+The log agrees from the other side: `PAWNCH_CLASH start` at 17:04:46.353 and the two
+`PAWNCH_BANTER say` lines at 17:04:48.185 — after the clash, one frame apart, `delay=0.00` then
+`delay=0.45`. `docs/media/day9b-banter-both-device.png` is the frame both of them are up in, on
+the phone: black's "Не смотри так, сам виноват." over the necromancer, white's "Запомним и
+вернёмся." over the valkyrie, and the bishop it is about already in the graveyard underneath.
+
+### The situation is judged over everything since that side last spoke
+
+Not over the last move, and this is the one place the obvious implementation is quietly wrong. The
+player is spoken to at the start of *its own* turn, so a piece it captured is two plies old by
+then: read the last move alone and the player's "took" group is unreachable for the whole life of
+the app, silently, with every check still green. `GameSession` keeps a ledger per side — took,
+lost, check — written on the commit and cleared the moment that side speaks. Priority is check,
+then lost, then took, then ordinary.
+
+The check that holds it is written to fail under the wrong reading: white takes on d5, black
+answers with a quiet knight move, and white is then asserted to be told it took a piece. Under
+last-move-only that assertion reads "idle" and fails.
+
+### A check that was wrong on its own terms
+
+The first version of the two-clocks check used `BOT_CAPTURE_FEN` and asserted the opponent gets
+"took" and the player "lost". It failed, and the code was right: on that FEN the knight's capture
+also forks the king, so the player's real situation is *check*, and check outranking a loss is
+exactly the priority the spec asks for. Rewritten against a new `BOT_QUIET_CAPTURE_FEN` — the same
+shape with white's king off the landing square — rather than weakened.
+
+### Cyrillic, and the size the longest line dictates
+
+Godot's `ThemeDB.fallback_font` is Open Sans SemiBold, and it carries Cyrillic: all 52 distinct
+characters in the corpus answer `has_char`, on the host and — the half that actually mattered — on
+the Redmi Note 13, checked in a device frame rather than assumed, because a host fallback the phone
+does not have would have shown up as a row of boxes on the first playtest.
+
+The bubble is sized from the longest line and every line is drawn at one size, because a line that
+shrinks to fit announces which line is the long one. A margin is 660 px, so 620 of bubble, so 568
+of text; at 44 px the longest phrase in the corpus (27 characters) measures 566 wrapped to two
+lines, and the box comes out 618 × 158 — the biggest text that fits the space the layout has. Seven
+lines of 44 wrap to two, the rest sit on one, and the box hugs whatever it holds with its bottom
+edge pinned, so it grows upward and never moves.
+
+The tail's tip follows the commander's **drawn** top edge, not `hero_origin()`, which is a
+66 px difference: the speaker is usually the *idle* commander, standing at 0.78 since yesterday,
+and a bubble that jumped two thirds of a cell when the turn changed would be the loudest thing on
+the screen. Only the tail length changes; the box stays put.
+
+Ten draw calls for a board with a bubble over each commander, against 4 without and a ~60 budget —
+three each, a rounded panel, a tail and one run of glyphs.
+
+### The app is Russian now, and that is not localisation
+
+A corpus of phrases is more text than the entire rest of the game, and a Russian bubble over an
+English UI is worse than either language alone. So the twelve-odd remaining strings went Russian
+with it: the game-over captions, the restart label, the pause menu, the debug button. **Non-goal 12
+is restated in `docs/product-analysis.md` rather than deleted** — the app became Russian, it did
+not become localised. No per-locale tables, no runtime switch, nothing to maintain twice. Code,
+comments, commits, specs and `README.md` stay English; `README.ru.md` is still the only Russian
+document. No ADR was edited today.
+
+### The bubble went into the skip sweep before it existed
+
+`banter=w0 b1` was added to `_rest_state()` and asserted in `_sweep_clash()` **before** a line of
+`hero_banter.gd` was written — the ordering that has now caught three bugs in this project. It ran
+red for one commit (`Invalid access to property 'banter'`) and then had to be satisfied rather than
+adjusted: a clash clears both bubbles on the way in, and only the side now to move is spoken to on
+the way out. 543 skips across three clashes, all landing on it. What is recorded is *whether* a
+line is up, not which one — the text comes out of a shuffle bag and would differ between two
+otherwise identical runs.
+
+Suite: **244 checks, 0 failed, 55 s** (from 218). The floor moved with it.
+
+### The whole session, on the phone
+
+Two recordings, 75 s and 178 s, driven by `adb shell input tap` over a computed square→pixel map.
+The second one reached every group: nine ordinary exchanges with no repeat on either side, two
+captures, and then a check — `docs/media/day9b-banter-check-device.png` is white's king on the red
+cell, white saying "Он до нас добрался." and black still saying "В коллекцию!" over the two
+knights it had just taken. That frame is also the priority rule working on the phone rather than in
+a check: white had *both* lost a piece and been checked, and check is what it was given.
+
+### Is it still funny the tenth time?
+
+Honestly: the individual lines are not, and they were never going to be. What survives a session is
+the *shape* — two characters talking past each other while a game goes on underneath. A shuffle bag
+per group means a full game does not repeat a line, and the reshuffle per game means two games do
+not open the same way (the two sessions recorded today opened "Покажем ему?" and "Только не зевай,
+как он."). What carries the fifth and tenth viewing is the pairing: black's "Не смотри так, сам
+виноват." landing over white's "Запомним и вернёмся." is funnier than either half, and there are
+5 × 5 = 25 such pairs for the capture case alone. The weakest group is `idle`, which is 8 lines of
+banter with nothing to be about; the strongest is `took`/`lost`, because the game just gave the
+joke a subject. If any of this gets cut, cut `idle` down and let an ordinary turn be silent — the
+bubble is worth more when it is not always there. Written down here rather than acted on, because
+that is a judgement about a corpus and it wants a child in front of it, not another pass by me.
 
 ## Ideas for later
 

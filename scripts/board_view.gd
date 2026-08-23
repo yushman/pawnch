@@ -55,8 +55,11 @@ const DARK_SQUARE := Color(0.49, 0.35, 0.24)
 # they cost no draw call at all: Day 4 drew them as `draw_rect` outlines and
 # measured +3..6, because an unbatched primitive breaks the run of textured
 # quads either side of it. Geometry tells them apart before colour does — a
-# blob in the middle, a ring round the figure, a wash on the cell's edges, a
-# frame on them, brackets on their corners (tools/bake_board_atlas.py).
+# blob in the middle, a wash on the cell's edges, and three nested edge marks:
+# a frame flush to them, a rounded frame inside it, brackets inside that
+# (tools/bake_board_atlas.py). The capture mark was a red ring until Day 9 --
+# the only round thing on a board that speaks in squares, and it fought the
+# last-move brackets on every cell that carried both.
 const MARK_MOVE := "move"
 const MARK_CAPTURE := "capture"
 const MARK_CHECK := "check"
@@ -68,13 +71,21 @@ const MARK_LAST_MOVE := "last_move"
 # rule that sides are fixed by colour and never by role. "Left is me" is learned
 # once and a graveyard that swapped sides between captures would spend it.
 #
-# Four columns of four is sixteen slots for the fifteen pieces a side can lose,
-# 480 x 480 inside a 660 px margin. The frames are the board's own, drawn a
+# Five columns of three is fifteen slots for the fifteen pieces a side can lose,
+# 600 x 360 inside a 660 px margin. The frames are the board's own, drawn a
 # little smaller, so a captured piece is literally the picture it was on the
 # square it died on -- the cheapest possible guarantee of "identifiable by type",
 # and free, since the frames are already on the page.
-const GRAVE_COLUMNS := 4
-const GRAVE_ROWS := 4
+#
+# **It was four by four until Day 9, and the shape is what paid for the room
+# above the commanders.** Sixteen slots for fifteen losses was one spare slot
+# bought with 120 px of a band that has 1080 to spend on a graveyard, a
+# commander and the clear space a speech bubble needs above it; laid out the
+# other way round the same fifteen fit and the 120 px goes to the gap. Fifteen
+# is a hard ceiling, not a hope: a side has sixteen pieces and the king is not
+# among the ones captured() counts.
+const GRAVE_COLUMNS := 5
+const GRAVE_ROWS := 3
 const GRAVE_CELL := Vector2(120, 120)
 const MARGIN_PAD := 20.0
 ## Most valuable first, so the biggest thing an army has lost is the first thing
@@ -95,6 +106,45 @@ const FALLEN_TINT := Color(0.40, 0.42, 0.50, 0.90)
 ## atlas page: a mounted rig is ~12 draw calls and two of them would put the idle
 ## board near its whole budget.
 const HERO_CELL := Vector2(300, 300)
+## Whose move it is, said by the commander rather than by a panel of its own
+## (board-view spec). Deliberately not hue: the two commanders are already two
+## colours, so a colour-only treatment says nothing at a glance about which of
+## them is the subject. Three channels instead -- the idle commander stands
+## smaller, stands dimmer, and stands on nothing, while the active one keeps its
+## size, its colour and a lit pedestal.
+const HERO_IDLE_SCALE := 0.78
+## Nowhere near FALLEN_TINT: an idle commander is waiting, not dead, and the two
+## must not read the same way in the same margin.
+const HERO_IDLE_TINT := Color(0.62, 0.64, 0.70, 1.0)
+## The pedestal is its own region on the atlas page, stretched flat. It began as
+## the destination blob tinted gold, which does not work and is worth writing
+## down: draw_texture_rect_region *multiplies* the modulate into the texture, and
+## gold times that blob's cyan is a pale green -- it rendered as a haze on the
+## background's own green and read as nothing at all. A draw_circle here would
+## have been the obvious fix and the wrong one; it breaks the margins' run of
+## textured quads exactly as Day 4's draw_rect marks broke the board's.
+const PEDESTAL_SIZE := Vector2(460, 190)
+## How much of the pedestal sits above the feet line. The rest of it lands on
+## the ground in front of the commander, and that overhang is why a commander
+## cannot stand hard against the bottom of its band: at 20 px of pad the light
+## under black's boots was cut off by the edge of the screen.
+const PEDESTAL_ANCHOR := 0.45
+const HUD_PEDESTAL := "pedestal"
+
+# The pause and take-back controls, stacked in the outer strip of white's band
+# beside the commander and exactly as tall as it is: 140 + 20 + 140 = 300 =
+# HERO_CELL.y. That strip is the only rectangle on this screen wide enough for a
+# finger that belongs to neither graveyard, neither commander, the board, nor the
+# room reserved above a commander for a bubble.
+#
+# **Both are layout only in this change and neither does anything.** control_at()
+# resolves a tap to one of them and InputRouter answers by printing; there is no
+# pause state and no move history to take a move back off. Said out loud here,
+# in the devlog and in both READMEs, because a dead control in front of a
+# playtester silently redefines what the session measured.
+const CONTROL_CELL := Vector2(140, 140)
+const CONTROL_PAD := 20.0
+const CONTROLS := ["pause", "takeback"]
 
 const FILES := ["a", "b", "c", "d", "e", "f", "g", "h"]
 const FEN_TYPES := {
@@ -124,6 +174,8 @@ var _figure_regions := {}  # "white_king" -> [Rect2 x6]
 var _crest_regions := {}  # "white_king" -> Rect2, the crest alone, in register
 var _hero_regions := {}  # "white" -> Rect2
 var _mark_regions := {}  # "move" -> Rect2
+var _control_regions := {}  # "pause" -> Rect2
+var _hud_regions := {}  # "pedestal" -> Rect2
 var _breath_tick := 0
 var _selected := ""
 var _destinations: Array = []
@@ -132,6 +184,10 @@ var _check := ""
 var _last_move: Array = []
 var _drag_square := ""
 var _drag_point := Vector2.ZERO
+# The colour whose move it is, or "" once the game is over. Pushed from
+# GameSession, exactly like the marks and the check square -- the board never
+# works out whose turn it is.
+var _active_color := ""
 # The material the game started from, per colour. The graveyard is the
 # difference between this and what is on the board *right now*, which is what
 # makes it correct for free: nothing increments it, nothing can drift from the
@@ -238,29 +294,80 @@ func graveyard_origin(color: String) -> Vector2:
 	return Vector2(_margin_x(color, GRAVE_COLUMNS * GRAVE_CELL.x), y).floor()
 
 
-# The commander's slot: hard against its own graveyard, MARGIN_PAD away, on the
-# same side of the margin -- so everything belonging to a colour sits at that
-# colour's own end of it.
+# The clear band above each commander, reserved for a speech bubble this change
+# does not draw. Nothing writes it down: it is whatever a margin has left once
+# the graveyard, the commander, the pedestal's overhang and the two pads are
+# taken out of it, which is why it comes out the same on both sides -- both
+# margins hold the same things.
+func hero_headroom() -> float:
+	return floorf(size.y - 2.0 * MARGIN_PAD - GRAVE_ROWS * GRAVE_CELL.y - HERO_CELL.y
+		- pedestal_drop())
+
+
+# How far the pool of light reaches past the commander's feet.
+func pedestal_drop() -> float:
+	return PEDESTAL_SIZE.y * (1.0 - PEDESTAL_ANCHOR)
+
+
+# The commander's slot, and the one thing in either margin placed by what has to
+# be *above* it rather than by what is beside it.
 #
-# **It was the other end of the margin for one day, and that was backwards.**
-# White's commander stood at the top of the left band, level with black's army
-# and directly across from black's dead, and black's stood at the bottom next to
-# white's. The graveyards already echo the board -- white's low because white's
-# army is at the bottom, black's high -- and the commander is the army's *face*,
-# so it carries that echo harder than a pile of casualties does, not less.
+# **It stood hard against its own graveyard until Day 9, and a person looking at
+# the build said both commanders sit too high.** They were right, and the reason
+# is the change that comes after this one: a speech bubble belongs above the
+# character speaking, so a commander with 20 px of band over its head can never
+# have one. Each margin now reads, top to bottom, as clear room and then the
+# commander for white -- graveyard against the bottom -- and as graveyard, clear
+# room, then the commander for black. Either way the room is directly above the
+# commander and it is the same 275 px on both sides.
 #
-# Which of the two takes the outer edge is decided by the game-over banner
-# rather than by taste. The banner covers the top 550 px of the left band, and
-# the only things in there it may cover are white's commander (decoration) and
-# the turn indicator (which hides itself at game over); both graveyards have to
-# survive it, because the material that decided the game is the thing a child
-# counts afterwards. So the graveyard keeps the outer end and the commander
-# stands inboard of it.
+# The graveyards keep their own army's end of the band regardless (ADR-0011
+# decision 5): white's dead low because white's army is at the bottom of the
+# board, black's high. That echo is the only thing on screen tying "the left
+# margin is white's" to the board, and it is what forces the two margins to
+# order their contents differently -- the alternative, both bands ordered the
+# same way, buys visual symmetry by spending the one thing the layout is for.
 func hero_origin(color: String) -> Vector2:
-	var grave := graveyard_origin(color).y
-	var y := grave - MARGIN_PAD - HERO_CELL.y if color == "white" \
-		else grave + GRAVE_ROWS * GRAVE_CELL.y + MARGIN_PAD
+	# Both sides say the same thing: the commander stands one headroom below
+	# whatever is over it. Over white's there is nothing, so it measures from
+	# the top of the band; over black's there is black's graveyard.
+	var y := hero_headroom()
+	if color == "black":
+		y += graveyard_origin(color).y + GRAVE_ROWS * GRAVE_CELL.y
 	return Vector2(_margin_x(color, HERO_CELL.x), y).floor()
+
+
+# Where the commander is *actually drawn*, which is hero_origin()'s cell for the
+# side to move and a cell shrunk about its own bottom edge for the other one.
+# The bubble above it reads this rather than hero_origin(), so its tail lands on
+# the head of an idle commander instead of 66 px above it -- and only the tail
+# moves, because the box is placed off the full cell and stays put.
+func hero_rect(color: String) -> Rect2:
+	var cell := Rect2(hero_origin(color), HERO_CELL)
+	if _active_color == "" or color == _active_color:
+		return cell
+	var shrink := HERO_CELL * (1.0 - HERO_IDLE_SCALE)
+	return Rect2(cell.position + Vector2(shrink.x * 0.5, shrink.y),
+		HERO_CELL * HERO_IDLE_SCALE)
+
+
+# Where one of the two controls is drawn and where a tap on it lands. Both are
+# 140 px, which is wider than a board cell -- the smallest thing this game asks
+# a finger to hit.
+func control_rect(name: String) -> Rect2:
+	var slot := CONTROLS.find(name)
+	return Rect2(Vector2(MARGIN_PAD,
+		hero_origin("white").y + slot * (CONTROL_CELL.y + CONTROL_PAD)).floor(),
+		CONTROL_CELL)
+
+
+# Which control a point in this control's own space is on, or "" for none.
+# Answering it is the whole of what the controls do in this change.
+func control_at(point: Vector2) -> String:
+	for name in CONTROLS:
+		if control_rect(name).has_point(point):
+			return name
+	return ""
 
 
 func _margin_x(color: String, width: float) -> float:
@@ -307,8 +414,9 @@ func placement() -> String:
 # The board is centred on whatever it is given; on a 2400x1080 screen an 8x8
 # board is 1080x1080 -- the short edge, which is what sets a chessboard's size in
 # either orientation -- with 660 px of background to the left of it and 660 to
-# the right. That is the space the turn indicator and the game-over banner live
-# in (board-view spec), and it is the only thing landscape gives the board.
+# the right. That is the space the two commanders, the two graveyards and the
+# controls live in (board-view spec), and it is the only thing landscape gives
+# the board.
 func board_size() -> Vector2:
 	return Vector2(file_count * CELL.x, rank_count * CELL.y)
 
@@ -364,6 +472,23 @@ func last_move() -> Array:
 	return _last_move.duplicate()
 
 
+# Whose move it is, or "" for a game that is over. Pushed from the session on
+# the same beat the position is, which is what keeps the emphasis from moving
+# mid-clash: until the clash reports done the board is deliberately showing the
+# position before the move, and a commander lit for the side that is about to
+# reply would be the one thing on a stale board telling the truth.
+func set_active_color(color: String) -> void:
+	if color == _active_color:
+		return
+	_active_color = color
+	queue_redraw()
+	print("PAWNCH_TURN active=%s" % color)
+
+
+func active_color() -> String:
+	return _active_color
+
+
 # The cell of the king that is currently attacked, or "" for no check. Pushed
 # from the session, which asks the rules — the board never works it out.
 func set_check(square: String) -> void:
@@ -395,6 +520,21 @@ func atlas_page() -> Texture2D:
 
 func figure_region(color: String, type: String, frame := 0) -> Rect2:
 	return _figure_regions["%s_%s" % [color, type]][frame]
+
+
+func hero_region(color: String) -> Rect2:
+	return _hero_regions[color]
+
+
+func crest_region(color: String, type: String) -> Rect2:
+	return _crest_regions["%s_%s" % [color, type]]
+
+
+# A sub-rectangle of one figure's own region, given in that figure's own cell
+# coordinates. The game-over banner cuts the knight's spear out of the knight
+# this way rather than shipping a second copy of it (ADR-0009).
+func figure_cut(color: String, type: String, cut: Rect2, frame := 0) -> Rect2:
+	return Rect2(figure_region(color, type, frame).position + cut.position, cut.size)
 
 
 func _draw() -> void:
@@ -447,9 +587,7 @@ func _draw() -> void:
 	# texture switch and no draw call -- confirmed against the count
 	# tests/render_board_states.gd prints, not assumed.
 	for color in ["white", "black"]:
-		if _hero_regions.has(color):
-			draw_texture_rect_region(_page, Rect2(hero_origin(color), HERO_CELL),
-				_hero_regions[color])
+		_draw_hero(color)
 		var grave := graveyard_origin(color)
 		var lost := captured(color)
 		for i in mini(lost.size(), GRAVE_COLUMNS * GRAVE_ROWS):
@@ -464,12 +602,43 @@ func _draw() -> void:
 				_figure_regions["%s_%s" % [color, lost[i]]][0], FALLEN_TINT)
 			draw_texture_rect_region(_page, cell, _crest_regions["%s_%s" % [color, lost[i]]])
 
+	# The two controls, last in the margin run and still on the same page, so
+	# they cost no draw call either.
+	for name in CONTROLS:
+		if _control_regions.has(name):
+			draw_texture_rect_region(_page, control_rect(name), _control_regions[name])
+
 	# Last, and over everything: the dragged piece belongs under the finger, not
 	# on the square it left.
 	if _drag_square != "" and _pieces.has(_drag_square):
 		_draw_figure(_pieces[_drag_square],
 			Rect2(_drag_point - CELL * Vector2(0.5, 0.75), CELL),
 			_breath_frame(_drag_square))
+
+
+# The commander, and whether it is the one whose move it is. A finished game
+# lights neither: nothing on this screen announces a turn that no longer exists,
+# and the banner is the message instead.
+func _draw_hero(color: String) -> void:
+	if not _hero_regions.has(color):
+		return
+	# Shrunk about the bottom edge when this is not the side to move, so both
+	# commanders keep standing on the same line as their own graveyard however
+	# small one of them gets.
+	var cell := hero_rect(color)
+	if color == _active_color:
+		# Straddling the feet line, not sitting above it. At 0.62 the figure
+		# stood on the *middle* of the pedestal and hid all but its fringe,
+		# which rendered as a pale wash nobody would read as emphasis; a little
+		# under half of it above the line leaves a pool of light around the
+		# boots and the rest of it on the ground in front.
+		if _hud_regions.has(HUD_PEDESTAL):
+			draw_texture_rect_region(_page, Rect2(
+				Vector2(cell.get_center().x, cell.end.y)
+					- PEDESTAL_SIZE * Vector2(0.5, PEDESTAL_ANCHOR),
+				PEDESTAL_SIZE), _hud_regions[HUD_PEDESTAL])
+	draw_texture_rect_region(_page, cell, _hero_regions[color],
+		HERO_IDLE_TINT if _active_color != "" and color != _active_color else Color.WHITE)
 
 
 func _draw_figure(piece: Dictionary, rect: Rect2, frame: int) -> void:
@@ -520,6 +689,12 @@ func _load_atlas() -> void:
 	for key in data["marks"]:
 		var b: Array = data["marks"][key]
 		_mark_regions[key] = Rect2(b[0], b[1], b[2], b[3])
+	for key in data.get("controls", {}):
+		var b: Array = data["controls"][key]
+		_control_regions[key] = Rect2(b[0], b[1], b[2], b[3])
+	for key in data.get("hud", {}):
+		var b: Array = data["hud"][key]
+		_hud_regions[key] = Rect2(b[0], b[1], b[2], b[3])
 	for key in data.get("crests", {}):
 		var b: Array = data["crests"][key]
 		_crest_regions[key] = Rect2(b[0], b[1], b[2], b[3])

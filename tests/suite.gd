@@ -13,8 +13,9 @@ const BoardViewScript = preload("res://scripts/board_view.gd")
 const GameSessionScript = preload("res://scripts/game_session.gd")
 const DuelPanelScript = preload("res://scripts/duel_panel.gd")
 const GreedyBotScript = preload("res://scripts/greedy_bot.gd")
-const TurnIndicatorScript = preload("res://scripts/turn_indicator.gd")
 const GameOverBannerScript = preload("res://scripts/game_over_banner.gd")
+const PauseMenuScript = preload("res://scripts/pause_menu.gd")
+const HeroBanterScript = preload("res://scripts/hero_banter.gd")
 
 const PERFT_EXPECTED := [20, 400, 8902, 197281]
 
@@ -46,6 +47,11 @@ const BOT_QUIET_FEN := "4k3/8/3n4/8/8/8/4P3/4K3 b - - 0 1"
 # BOT_MVV_FEN a move earlier: white plays f3f4 and the queen is still hanging,
 # so the reply is a capture and a clash.
 const BOT_CAPTURE_FEN := "4k3/8/8/4n3/8/3Q1P2/8/4K3 w - - 0 1"
+# The same shape with white's king off the knight's landing square, so the reply
+# takes a queen and nothing else. BOT_CAPTURE_FEN's knight forks as well as
+# takes, which makes the player's line a check rather than a loss -- correct, and
+# the wrong thing to read the two clocks against.
+const BOT_QUIET_CAPTURE_FEN := "4k3/8/8/4n3/8/3Q1P2/8/7K w - - 0 1"
 # 1.Ra8 is mate, played by the player, so the bot's turn never comes.
 const BACK_RANK_MATE_FEN := "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1"
 const BOT_SEED := 20260818
@@ -64,8 +70,12 @@ class ClashStub:
 	extends Node
 
 	var board: BoardView
+	## Whichever bubbles were up at the instant the clash began, which is how
+	## "the clash owns the screen" is seen from outside it.
+	var banter: BanterSpy
 	var calls := 0
 	var placement_during := ""
+	var banter_during := ""
 	var attacker := ""
 	var attacker_type := ""
 	var defender_type := ""
@@ -76,6 +86,47 @@ class ClashStub:
 		attacker_type = a_type
 		defender_type = d_type
 		placement_during = board.placement()
+		if banter != null:
+			banter_during = banter.state()
+
+
+# Stands in for the two speech bubbles: records every line it was asked for, in
+# order, with the beat it was asked to wait. It is the only way to see the two
+# clocks -- which side was spoken to, out of which group, and how long after the
+# other one -- without a stopwatch and a phone.
+class BanterSpy:
+	extends Node
+
+	var says: Array = []
+	var clears := 0
+	var resets := 0
+	var _up := {}
+
+	func say(side: String, group: String, delay := 0.0) -> String:
+		says.append({"side": side, "group": group, "delay": delay})
+		_up[side] = group
+		return "%s/%s" % [side, group]
+
+	func clear() -> void:
+		clears += 1
+		_up.clear()
+
+	func reset() -> void:
+		resets += 1
+		clear()
+
+	func pending(side: String) -> bool:
+		return _up.has(side)
+
+	func state() -> String:
+		return "w%d b%d" % [int(pending("white")), int(pending("black"))]
+
+	# The group `side` was last spoken to out of, or "" if it never was.
+	func last(side: String) -> String:
+		for i in range(says.size() - 1, -1, -1):
+			if says[i]["side"] == side:
+				return String(says[i]["group"])
+		return ""
 
 
 # Stands in for the game-over banner: records what it was last told, which is
@@ -123,6 +174,7 @@ func run(scene_tree: SceneTree) -> void:
 	await _run_clash_finish()
 	await _run_bot_turn()
 	await _run_skip_offsets()
+	await _run_banter()
 	_run_desync_smoke()
 
 
@@ -250,11 +302,17 @@ func _run_board_smoke() -> bool:
 			Vector2(BoardViewScript.GRAVE_COLUMNS, BoardViewScript.GRAVE_ROWS)
 				* BoardViewScript.GRAVE_CELL)
 		boxes["%s hero" % color] = Rect2(full.hero_origin(color), BoardViewScript.HERO_CELL)
-	boxes["turn indicator"] = TurnIndicatorScript.PANEL
-	boxes["game-over banner"] = GameOverBannerScript.PANEL
-	boxes["restart button"] = Rect2(
-		GameOverBannerScript.RESTART_CENTER - Vector2.ONE * GameOverBannerScript.RESTART_TOUCH,
-		Vector2.ONE * GameOverBannerScript.RESTART_TOUCH * 2.0)
+		# The pool of light under the active commander is drawn in the margin
+		# too, and it is half again as wide as the commander it sits under, so
+		# it is the thing in there most likely to spill onto the board.
+		var hero := boxes["%s hero" % color] as Rect2
+		boxes["%s pedestal" % color] = Rect2(
+			Vector2(hero.get_center().x, hero.end.y)
+				- BoardViewScript.PEDESTAL_SIZE
+					* Vector2(0.5, BoardViewScript.PEDESTAL_ANCHOR),
+			BoardViewScript.PEDESTAL_SIZE)
+	for name in BoardViewScript.CONTROLS:
+		boxes["%s control" % name] = full.control_rect(name)
 	var spills := PackedStringArray()
 	for name: String in boxes:
 		var box: Rect2 = boxes[name]
@@ -288,10 +346,32 @@ func _run_board_smoke() -> bool:
 		and blocks["black"].position.y == BoardViewScript.MARGIN_PAD
 		and full.hero_origin("white").y < full.graveyard_origin("white").y
 		and full.hero_origin("black").y > full.graveyard_origin("black").y) and ok
-	# Everything a margin carries at once is disjoint. The banner is the one thing
-	# that overlaps by design, so it is not in this list -- what it may cover is
-	# the check after this one, not an exception to this one.
-	var permanent := ["white grave", "white hero", "black grave", "black hero", "turn indicator"]
+	# Each commander has a clear band above it for a speech bubble the next
+	# change draws, and the two bands are the same size -- which is the whole
+	# reason the graveyard went from four by four to five by three. "Above" is
+	# whatever is over the commander in its own band: nothing at all in white's,
+	# and black's graveyard in black's.
+	var headroom := full.hero_headroom()
+	# 250 rather than a number read off the current layout: the band exists for a
+	# bubble the next change draws, and a bubble smaller than most of the
+	# commander under it is not worth reserving a band for.
+	ok = _check("each commander has the same clear band above it (%d px)" % headroom,
+		headroom >= 250.0
+		and is_equal_approx(full.hero_origin("white").y, headroom)
+		and is_equal_approx(full.hero_origin("black").y
+			- (full.graveyard_origin("black").y
+				+ BoardViewScript.GRAVE_ROWS * BoardViewScript.GRAVE_CELL.y), headroom)) and ok
+	# Everything solid a margin carries at once is disjoint. Two things are
+	# deliberately not in this list. The banner overlaps by design, and since
+	# Day 9 what it overlaps is the board -- the check after this one. The
+	# pedestals are a *glow*: their box is the full 460 x 190 quad while the lit
+	# part of it is a disc about 220 px across in the middle, so asserting the
+	# box is disjoint would be asserting something about blur falloff rather
+	# than about the layout, and it would fail on the top row of white's dead,
+	# which the light is supposed to reach. They stay in `boxes` because the
+	# spill check above is about the quad and is the right test for one.
+	var permanent := ["white grave", "white hero", "black grave", "black hero",
+		"pause control", "takeback control"]
 	var overlaps := PackedStringArray()
 	for i in permanent.size():
 		for j in range(i + 1, permanent.size()):
@@ -299,11 +379,23 @@ func _run_board_smoke() -> bool:
 				overlaps.append("%s/%s" % [permanent[i], permanent[j]])
 	ok = _check("nothing standing in a margin overlaps anything else standing in it: %s"
 		% " ".join(overlaps), overlaps.is_empty()) and ok
-	ok = _check("and the game-over banner covers whole the two things it is allowed to cover, and neither graveyard",
-		(boxes["game-over banner"] as Rect2).encloses(boxes["turn indicator"])
-		and (boxes["game-over banner"] as Rect2).encloses(boxes["white hero"])
-		and not (boxes["game-over banner"] as Rect2).intersects(boxes["white grave"])
-		and not (boxes["game-over banner"] as Rect2).intersects(boxes["black grave"])) and ok
+	# Rewritten rather than repaired. The old check asserted that the banner
+	# covered the turn indicator and white's commander whole -- true of a banner
+	# that lived in the top of the left margin, and meaningless once it moved to
+	# the middle of the screen. What it was really defending is the last clause,
+	# which is unchanged: the material that decided the game stays countable.
+	var banner_box := GameOverBannerScript.PANEL as Rect2
+	ok = _check("the game-over banner sits over the board and covers no margin: %s" % banner_box,
+		board_rect.encloses(banner_box)) and ok
+	ok = _check("and the pause menu, which nothing opens yet, sits in the same place",
+		board_rect.encloses(PauseMenuScript.PANEL as Rect2)
+		and PauseMenuScript.BUTTONS.size() == 2
+		and (PauseMenuScript.PANEL as Rect2).encloses(PauseMenuScript.button_rect(PauseMenuScript.BUTTONS[1]))) and ok
+	# Layout only, and the size is the part of that which is checkable: a finger
+	# that can hit a board cell has to be able to hit these.
+	ok = _check("both controls are at least as big as the smallest thing the game asks a finger to hit",
+		BoardViewScript.CONTROL_CELL.x >= BoardViewScript.CELL.x
+		and BoardViewScript.CONTROL_CELL.y >= BoardViewScript.CELL.y) and ok
 	# Derived from the position, never tallied: an untouched board has lost
 	# nothing, and a board with material missing reports exactly what is missing.
 	ok = _check("an untouched board has an empty graveyard on both sides",
@@ -1182,17 +1274,19 @@ func _run_bot_turn() -> bool:
 	var board: BoardView = main.get_node("Board")
 	var panel: Node = main.get_node("DuelPanel")
 	var banner: Node = main.get_node("GameOverBanner")
-	var indicator: Node = main.get_node("TurnIndicator")
 	var bot: Node = main.get_node("GreedyBot")
 	bot.rng.seed = BOT_SEED
 
-	ok = _check("the scene wires the session to an opponent playing black and an indicator",
-		session.bot != null and session.bot.color == "black"
-		and session.indicator != null) and ok
-	ok = _check("the indicator opens on the player's turn",
-		indicator.state() == "player" and indicator.turn_color() == "white") and ok
-	ok = _check("the indicator consumes no input",
-		indicator.mouse_filter == Control.MOUSE_FILTER_IGNORE) and ok
+	# Rewritten, not deleted. These four checks used to interrogate a turn card
+	# that no longer exists; what they were really asserting is that the turn is
+	# legible and that it follows the rules, and that is still true -- it is
+	# carried by the commander in the margin now (board-view spec).
+	ok = _check("the scene wires the session to an opponent playing black",
+		session.bot != null and session.bot.color == "black") and ok
+	ok = _check("the board opens with white's commander lit",
+		board.active_color() == "white") and ok
+	ok = _check("nothing on screen but the board announces the turn",
+		main.get_node_or_null("TurnIndicator") == null) and ok
 
 	# A quiet move with the pause left in, so the reply is a separate event.
 	session.bot_pause_sec = 0.15
@@ -1200,8 +1294,11 @@ func _run_bot_turn() -> bool:
 	ok = _check("input freezes on the player's commit, before the reply lands",
 		session.is_frozen() and session.turn() == "black"
 		and board.placement().begins_with("rnbqkbnr/pppppppp")) and ok
-	ok = _check("the indicator names the opponent from the commit onward",
-		indicator.state() == "opponent" and indicator.turn_color() == "black") and ok
+	# A quiet move has no clash to wait for, so the board catches up on the
+	# commit and the emphasis goes with it -- which is the rule, not an
+	# exception to it: the emphasis follows the board (board-view spec).
+	ok = _check("a quiet commit moves the emphasis with the board",
+		board.active_color() == "black") and ok
 	var thaws := await _watch_freeze(session)
 	ok = _check("input thaws once, after the reply, and never between the two moves (%d)"
 		% thaws, thaws == 1) and ok
@@ -1209,19 +1306,40 @@ func _run_bot_turn() -> bool:
 		session.turn() == "white" and board.placement() == session.fen().split(" ")[0]) and ok
 	ok = _check("input came back by itself with nothing selected",
 		not session.is_frozen() and session.selected() == "") and ok
-	ok = _check("the indicator followed the rules back to the player",
-		indicator.state() == "player" and indicator.turn_color() == "white") and ok
+	ok = _check("the emphasis followed the rules back to the player",
+		board.active_color() == "white") and ok
+
+	# The one case the emphasis is allowed to lag, and the reversal of what the
+	# turn card asserted. A separate panel could name the side to move from the
+	# instant of the commit, over a board still showing the position before it,
+	# because the panel was not part of the same picture. The commander is, so
+	# it holds until the clash is done and the board agrees (board-view spec).
+	session.bot_pause_sec = 0.0
+	session.load_fen(BOT_CAPTURE_FEN)
+	session.play_move("f3f4")
+	var frames := 0
+	while not panel.is_clashing() and frames < 300:
+		await tree.process_frame
+		frames += 1
+	var held := frames < 300
+	while panel.is_clashing() and frames < 900:
+		held = held and board.active_color() == "black"
+		await tree.process_frame
+		frames += 1
+	ok = _check("the emphasis holds the side that moved for the whole of its clash",
+		held and frames < 900) and ok
+	ok = _check("and turns over once the board has caught up",
+		await _await_unfrozen(session) and board.active_color() == "white") and ok
 
 	# A capture by the opponent takes the same clash path a player capture does,
 	# and ends in the same place whether it is watched or cut short.
-	session.bot_pause_sec = 0.0
 	var full := await _bot_capture_run(session, board, panel, false)
 	print("opponent capture rest state: %s" % full)
 	ok = _check("the opponent's capture plays a clash and the board catches up",
 		full.contains("fen=4k3/8/8/8/5P2/3n4/8/4K3") and full.contains("frozen=false")
 		and full.contains("clashing=false") and full.contains("returned=true")) and ok
-	ok = _check("the indicator follows a capture too, back to the player",
-		indicator.state() == "player" and indicator.turn_color() == "white") and ok
+	ok = _check("the emphasis follows a capture too, back to the player",
+		board.active_color() == "white") and ok
 	var skipped := await _bot_capture_run(session, board, panel, true)
 	ok = _check("a skipped opponent capture ends exactly where the unskipped one does: %s"
 		% skipped, skipped == full) and ok
@@ -1248,8 +1366,30 @@ func _run_bot_turn() -> bool:
 		session.is_over() and session.fen().split(" ")[0] == "R5k1/5ppp/8/8/8/8/8/4K3") and ok
 	ok = _check("a finished game does not leave input frozen",
 		not session.is_frozen()) and ok
-	ok = _check("the indicator goes silent and lets the banner speak",
-		indicator.state() == "over" and not indicator.visible and banner.visible) and ok
+	ok = _check("neither commander is lit once the game is over, and the banner speaks",
+		board.active_color() == "" and banner.visible) and ok
+	# Layout only: the two controls resolve a tap and answer with nothing
+	# (board-view spec). Checked on a finished game and on a live one, because
+	# "does nothing" has to mean the same thing in both.
+	var router: InputRouter = main.get_node("InputRouter")
+	var frozen_fen := session.fen()
+	for name in BoardViewScript.CONTROLS:
+		router._press(board.control_rect(name).get_center())
+	ok = _check("the pause and take-back controls change nothing about a finished game",
+		session.fen() == frozen_fen and session.is_over()
+		and main.get_node("PauseMenu").visible == false) and ok
+
+	# Dismissing the banner leaves the game over underneath, with the position
+	# that ended it on screen, and puts it back on the next tap (game-outcome).
+	banner.dismiss()
+	ok = _check("dismissing the banner leaves the game over and the position intact",
+		not banner.visible and session.is_over()
+		and board.placement() == session.fen().split(" ")[0]) and ok
+	ok = _check("and no further move can be played once it is out of the way",
+		not session.play_move("e1e2") and session.fen() == frozen_fen) and ok
+	router._press(board.cell_rect("d4").get_center())
+	ok = _check("a tap on the dismissed board brings the result back",
+		banner.visible and session.fen() == frozen_fen) and ok
 
 	# Wired to a colour that is not to move it plays nothing, rather than
 	# playing the player's move for them.
@@ -1356,6 +1496,13 @@ func _sweep_clash(session: GameSession, board: BoardView, panel: Node,
 		and unskipped.contains("time_scale=1.000") and unskipped.contains("mask_w=0.0")
 		and unskipped.contains("stage=(0.0, 0.0)") and unskipped.contains("burst_a=0.000")
 		and unskipped.contains("white_debris=0") and unskipped.contains("black_debris=0")) and ok
+	# The bubble, named rather than merely compared against the unskipped run:
+	# a clash clears both bubbles on the way in and the side now to move is
+	# spoken to on the way out, so a capture by white ends with black's line up
+	# and white's gone. Two runs that both left a stale bubble up would agree
+	# with each other and diverge from nothing.
+	ok = _check("and with the pre-clash bubbles cleared and only the side now to move speaking",
+		unskipped.contains("banter=w0 b1")) and ok
 	# The pounce lifts, tilts, squashes and pulls the attacker in front of the
 	# defender, so "back where it started" is a whole transform plus a draw
 	# order. The mirror is asserted by its sign: an absolute Vector2 squash would
@@ -1453,6 +1600,13 @@ func _rest_state(session: GameSession, board: BoardView, panel: Node) -> String:
 		# than something adjusted afterwards to agree with it.
 		"graves=%s|%s" % [
 			"".join(board.captured("white")), "".join(board.captured("black"))],
+		# The bubble is state a skip can leave on screen exactly the way it can
+		# leave a figure airborne, and it is recorded here *before* the change
+		# that draws one was written -- the ordering that has caught three bugs
+		# in this project. What is recorded is whether a line is scheduled or
+		# showing and not which line it is: the text comes out of a shuffle bag
+		# and would differ between two runs that are otherwise identical.
+		"banter=%s" % _banter_state(session.banter),
 		"selected=%s" % session.selected(),
 		"frozen=%s" % session.is_frozen(),
 		"clashing=%s" % panel.is_clashing(),
@@ -1464,6 +1618,16 @@ func _rest_state(session: GameSession, board: BoardView, panel: Node) -> String:
 		_rig_state("white", panel.get_node("Frame/Mask/Stage/White")),
 		_rig_state("black", panel.get_node("Frame/Mask/Stage/Black")),
 	]))
+
+
+# "none" for a session with nobody to speak, which is the two-human session the
+# renders and half the checks run in. A side is `1` from the moment its line is
+# asked for until the fade has taken it away, so a bubble a skip left behind
+# reads as a 1 where the unskipped run has a 0.
+func _banter_state(banter) -> String:
+	if banter == null:
+		return "none"
+	return "w%d b%d" % [int(banter.pending("white")), int(banter.pending("black"))]
 
 
 # The detached head is the one piece of debris with a life of its own: it is a
@@ -1485,6 +1649,250 @@ func _rig_state(label: String, rig: CharacterRig) -> String:
 	return "%s_pos=%s %s_rot=%.3f %s_scale=%s %s_z=%d %s_anim=%s %s_debris=%d" % [
 		label, rig.position, label, rig.rotation, label, rig.scale,
 		label, rig.z_index, label, anim.current_animation, label, debris]
+
+
+# The speech bubbles: which side is spoken to, when, out of which group, and
+# whether the line ever repeats before its group is exhausted (hero-banter spec).
+#
+# The situation half of this is the part with a real trap in it, so the check
+# that matters most is the one marked below: a capture the player made is two
+# plies old by the time the player is spoken to again, and a reading that looked
+# only at the last move would put it in the ordinary group and never once show
+# the "took" lines to the player. That check passes here and would fail under
+# last-move-only selection, which is the whole reason it is written this way
+# round.
+func _run_banter() -> bool:
+	var ok := true
+	var board: BoardView = BoardViewScript.new()
+	var session: GameSession = GameSessionScript.new()
+	var spy := BanterSpy.new()
+	var stub := ClashStub.new()
+	stub.board = board
+	stub.banter = spy
+	session.banter = spy
+	session.clash = stub
+	session.attach(board)
+
+	ok = _check("the opening line is the player's, and it is an ordinary one",
+		spy.says.size() == 1 and spy.says[0]["side"] == "white"
+		and spy.says[0]["group"] == "idle") and ok
+
+	# 1.e4 d5 2.exd5, then a quiet black reply. White is spoken to twice in it:
+	# once before the capture and once two plies after it.
+	session.restart()
+	session.play_move("e2e4")
+	session.play_move("d7d5")
+	session.play_move("e4d5")
+	ok = _check("the side that was just taken from is told it lost a piece",
+		spy.last("black") == "lost") and ok
+	spy.says.clear()
+	session.play_move("g8f6")
+	# The one that separates the two readings. Black's move took nothing and
+	# checked nothing, so last-move-only would put white in the ordinary group.
+	ok = _check("the player is still told it took a piece two plies later, judged over everything since it last spoke",
+		spy.last("white") == "took") and ok
+
+	session.restart()
+	session.play_move("e2e4")
+	session.play_move("d7d5")
+	session.play_move("f1b5")
+	ok = _check("a side in check is told so", spy.last("black") == "check") and ok
+
+	# Rxe7+ takes a rook and checks with the same move: two situations at once,
+	# and check is the one that wins.
+	session.load_fen("4k3/4r3/8/8/8/8/8/4RK2 w - - 0 1")
+	session.play_move("e1e7")
+	ok = _check("and check outranks having lost a piece when a move does both",
+		spy.last("black") == "check") and ok
+
+	session.restart()
+	spy.says.clear()
+	session.play_move("g1f3")
+	ok = _check("a turn with nothing notable behind it draws from the ordinary set",
+		spy.last("black") == "idle") and ok
+
+	# The clash owns the screen. The stub reports what was up at the instant it
+	# started, which is the only place that can be seen from.
+	session.restart()
+	session.play_move("e2e4")
+	session.play_move("d7d5")
+	stub.banter_during = "not asked"
+	session.play_move("e4d5")
+	ok = _check("both bubbles are gone before a clash begins (%s)" % stub.banter_during,
+		stub.banter_during == "w0 b0") and ok
+	ok = _check("and a line is only said once the board has caught up with the position",
+		spy.pending("black") and board.placement() == session.fen().split(" ")[0]) and ok
+
+	# Nobody speaks over an ending: the crown and the spear are the message.
+	session.load_fen(MATE_IN_ONE_FEN)
+	spy.says.clear()
+	spy.clears = 0
+	session.play_move("d8h4")
+	ok = _check("a finished game clears both bubbles and says nothing over them",
+		session.is_over() and spy.says.is_empty() and spy.clears > 0
+		and not spy.pending("white") and not spy.pending("black")) and ok
+
+	# Two clocks. Neither node is in a tree, so the opponent's whole reply --
+	# its pause, its move and its clash -- lands inside this one play_move()
+	# call, and the two lines it produces can be read off in order.
+	var bot := GreedyBotScript.new()
+	bot.rng.seed = BOT_SEED
+	session.bot = bot
+	session.load_fen(BOT_QUIET_CAPTURE_FEN)
+	spy.says.clear()
+	session.play_move("f3f4")
+	ok = _check("the opponent's line lands first and the player's a beat later, never together",
+		spy.says.size() == 2 and spy.says[0]["side"] == "black"
+		and spy.says[1]["side"] == "white"
+		and float(spy.says[0]["delay"]) == 0.0
+		and float(spy.says[1]["delay"]) == session.banter_reply_beat_sec
+		and float(spy.says[1]["delay"]) > float(spy.says[0]["delay"])) and ok
+	ok = _check("and each of the two is spoken to about its own half of the move it just watched",
+		spy.says.size() == 2 and spy.says[0]["group"] == "took"
+		and spy.says[1]["group"] == "lost") and ok
+	session.bot = null
+
+	board.free()
+	session.free()
+	spy.free()
+	stub.free()
+	bot.free()
+	return ok and await _run_banter_corpus()
+
+
+# The corpus, the bag it is drawn out of, the clock the bubble runs on, and the
+# box it is drawn in. The node is put in the tree so that _ready() -- which
+# loads the corpus -- actually runs, and then taken off _process, because the
+# clock below is stepped by hand.
+func _run_banter_corpus() -> bool:
+	var ok := true
+	var banter: HeroBanter = HeroBanterScript.new()
+	tree.root.add_child(banter)
+	await tree.process_frame
+	banter.set_process(false)
+	var full: BoardView = BoardViewScript.new()
+	full.size = Vector2(2400, 1080)
+	banter.board = full
+
+	var lines := []
+	var empty := PackedStringArray()
+	for side in HeroBanterScript.SIDES:
+		for group in HeroBanterScript.GROUPS:
+			var group_lines := banter.lines_in(side, group)
+			if group_lines.is_empty():
+				empty.append("%s/%s" % [side, group])
+			lines.append_array(group_lines)
+	ok = _check("both voices have all four situations and none of the eight groups is empty: %s"
+		% " ".join(empty), empty.is_empty() and lines.size() == banter.line_count()) and ok
+
+	# Failure mode 3's shape, applied to text instead of animation: a situation
+	# with nothing in it would be a bubble that silently never appears.
+	var font := ThemeDB.fallback_font
+	var boxes := PackedStringArray()
+	var missing := PackedStringArray()
+	var widest := Rect2()
+	for line: String in lines:
+		for ch in line:
+			if not font.has_char(ch.unicode_at(0)) and not missing.has(ch):
+				missing.append(ch)
+		for side in HeroBanterScript.SIDES:
+			var box := banter.bubble_rect(side, line)
+			if box.size.x > widest.size.x:
+				widest = box
+			var margin := Rect2(0.0 if side == "white" else full.board_origin().x
+				+ full.board_size().x, 0.0, full.board_origin().x, full.size.y)
+			if not margin.encloses(box):
+				boxes.append("%s:%s%s" % [side, line, box])
+	ok = _check("every phrase renders in the font the bubble uses, with no missing glyph: %s"
+		% " ".join(missing), missing.is_empty()) and ok
+	ok = _check("and every one of the %d fits a bubble inside its own commander's margin, the widest being %s: %s"
+		% [lines.size(), widest.size, " ".join(boxes)],
+		boxes.is_empty() and widest.size.x <= HeroBanterScript.MAX_WIDTH) and ok
+
+	# The bubble is drawn in the band the layout reserves above a commander and
+	# nowhere else: not over the board, not over a graveyard, not over either
+	# commander, not over the controls, and not over the other margin.
+	var solid := {"board": Rect2(full.board_origin(), full.board_size())}
+	for color in ["white", "black"]:
+		solid["%s grave" % color] = Rect2(full.graveyard_origin(color),
+			Vector2(BoardViewScript.GRAVE_COLUMNS, BoardViewScript.GRAVE_ROWS)
+				* BoardViewScript.GRAVE_CELL)
+		solid["%s hero" % color] = Rect2(full.hero_origin(color), BoardViewScript.HERO_CELL)
+	for name in BoardViewScript.CONTROLS:
+		solid["%s control" % name] = full.control_rect(name)
+	var covered := PackedStringArray()
+	# The longest line, taken out of the corpus rather than pasted in here: the
+	# check below asserts that no phrase is written down in a script, and this
+	# file is a script.
+	var longest := ""
+	for line: String in lines:
+		if banter.bubble_rect("white", line).size.x > banter.bubble_rect("white", longest).size.x:
+			longest = line
+	var covered_by := "the longest line (%s)" % longest
+	for side in HeroBanterScript.SIDES:
+		var box := banter.bubble_rect(side, longest)
+		for name: String in solid:
+			if (solid[name] as Rect2).intersects(box):
+				covered.append("%s bubble/%s" % [side, name])
+	ok = _check("%s covers nothing the player is meant to be looking at: %s"
+		% [covered_by, " ".join(covered)], covered.is_empty()) and ok
+
+	# Every line in a group is shown once before any is shown twice, and the
+	# order differs between games. Seeded, so "differs" is a fact about the
+	# shuffle rather than a coin toss that fails one run in forty thousand.
+	banter.rng.seed = 20260820
+	var bag_size := banter.lines_in("white", "idle").size()
+	var first := []
+	for i in bag_size:
+		first.append(banter.say("white", "idle"))
+	var seen := {}
+	for line: String in first:
+		seen[line] = true
+	ok = _check("a group of %d is exhausted before any line comes round again" % bag_size,
+		bag_size > 1 and seen.size() == bag_size) and ok
+	banter.reset()
+	ok = _check("a new game leaves nothing on screen", not banter.pending("white")
+		and not banter.pending("black") and banter.line_on("white") == "") and ok
+	var second := []
+	for i in bag_size:
+		second.append(banter.say("white", "idle"))
+	ok = _check("and a second game does not open the way the first one did",
+		second != first) and ok
+	banter.clear()
+
+	# Appear, hold, fade -- and the beat, which is the thing that keeps two
+	# bubbles from arriving on one frame.
+	banter.say("white", "idle", 0.45)
+	ok = _check("a line asked for with a beat behind it is not on screen yet",
+		banter.pending("white") and banter.line_on("white") == "") and ok
+	banter.advance(0.45 + HeroBanterScript.RISE_SEC)
+	var shown := banter.line_on("white")
+	ok = _check("it is up once its beat has passed (%s)" % shown, shown != "") and ok
+	banter.advance(HeroBanterScript.HOLD_SEC * 0.9)
+	ok = _check("and still up while the side it belongs to is thinking",
+		banter.line_on("white") == shown) and ok
+	banter.advance(HeroBanterScript.HOLD_SEC * 0.1 + HeroBanterScript.FADE_SEC + 0.01)
+	ok = _check("and gone on its own before it goes stale, with nothing left behind",
+		not banter.pending("white") and banter.line_on("white") == "") and ok
+
+	# The phrases live in one file. A line pasted into a script is a line nobody
+	# will ever find again to review, and reviewing them once is the whole of
+	# what keeps them fit for a six-year-old.
+	var scattered := PackedStringArray()
+	for path in ["res://scripts", "res://tests"]:
+		for name in DirAccess.get_files_at(path):
+			if not name.ends_with(".gd"):
+				continue
+			var text := FileAccess.get_file_as_string("%s/%s" % [path, name])
+			for line: String in lines:
+				if text.contains(line):
+					scattered.append("%s: %s" % [name, line])
+	ok = _check("and no phrase is written down anywhere but assets/text/banter.json: %s"
+		% " ".join(scattered), scattered.is_empty()) and ok
+
+	full.free()
+	banter.queue_free()
+	return ok
 
 
 # Two hundred random legal games with the clash stubbed to zero duration,

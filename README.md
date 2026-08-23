@@ -8,8 +8,9 @@ impact, screen shake, VFX, sound and haptics — instead of a piece silently van
 > **Status: in development, day 6 of 12.** There is no installable build yet, but the game
 > runs on the target phone: a full game can be played to checkmate, every capture cuts to the
 > duel, and the numbers below are measured on that device rather than estimated. There is now
-> an opponent to play against, and two of the six piece types — pawn and knight — have a clash
-> of their own; the other four share one. What is missing is those four clashes and the sound
+> an opponent to play against, and every piece type now resolves to a clash: the knight charges,
+> the pawn pounces, and bishop, rook and king share an overhead strike, with the queen on the
+> strike too until it gets one of its own. What is missing is the queen's own clash and the sound
 > and polish pass. Neither animation has yet been judged against the app it has to beat.
 
 ## What it is
@@ -50,9 +51,13 @@ somewhere illegal. **Tapping a piece you have already picked up puts it back dow
 
 The board marks five things, all as quads out of the same atlas the pieces come from: the
 **selected** piece, every square it may **move** to, every square holding a piece it may
-**capture** (a red ring, including en passant, whose destination square is empty), the cell of a
+**capture** (a red square frame, including en passant, whose destination square is empty), the cell of a
 **king in check**, and the two squares of the **opponent's last move** — violet corner brackets on
 where it came from and where it now stands, which stay up while you think and clear when you move.
+All three edge marks are the same shape in three colours at three insets — the capture frame flush
+to the cell, the selection frame just inside it, the last-move brackets inside that — so a square
+carrying two of them still reads as two marks. The capture mark was a red *ring* until Day 9, and
+it was the only round thing on a board that otherwise speaks in squares.
 That last one exists because a reply that lands in under a second is a piece that was somewhere
 and is now somewhere else, and after a capture the duel has taken your eyes off the board for the
 whole of the move it is meant to explain.
@@ -61,9 +66,13 @@ A clash can be **skipped by tapping anywhere** while it plays. The Android **bac
 the least destructive thing available: it finishes a clash if one is playing, else clears the
 selection, else behaves the way back normally does. Neither is the only way to anything.
 
-When a game ends, a banner says which ending it was and who won without requiring anyone to read —
-the winner's king standing crowned, the loser's on its back and greyed, or two equal kings and an
-equals sign for a draw — with a restart arrow underneath. The board stays visible under both.
+When a game ends, a banner in the middle of the screen says which ending it was and who won
+without requiring anyone to read — the two commanders, the winner crowned and the loser run
+through with the winner's own knight's spear, or two equal commanders and an equals sign for a
+draw — with a restart arrow underneath and a cross to **put it away and look at the finished
+board**. Dismissing it changes nothing: the game is still over and no further move can be played,
+and a tap anywhere brings the result back. It covers neither graveyard, because what each army
+lost is part of the result.
 
 You play white; **the opponent plays black** and answers within a second, after a short pause so
 its reply reads as a move rather than as the board twitching twice. It is **deliberately a bad
@@ -72,21 +81,63 @@ pieces constantly. That is the point rather than a defect — a hung piece is an
 capture, and a capture is the thing this whole app exists to show
 ([ADR-0005](docs/adr/0005-capture-greedy-bot-not-a-real-engine.md)).
 
-A readout above the board says **whose turn it is**, without words: your side's king and a chevron
-pointing down at the board on your move, three stepping dots while the opponent decides. With an
-opponent that thinks and then moves on its own, "is it my turn" and "is it stuck" are questions a
-six-year-old cannot answer from a board that looks the same either way. Touches are ignored for
-the whole of the opponent's turn and come back on their own.
+**Whose turn it is is said by the commanders** standing in the two margins rather than by a panel
+of its own: the side to move stands full height in a pool of gold light and the other stands
+smaller and dimmer. Not colour — the two commanders are already two colours, so a colour-only
+treatment would say nothing about which of them is the subject. The emphasis waits for the board:
+while a clash is playing it still shows the side whose move is being replayed, because the board
+under it is deliberately still showing the position before that move. Touches are ignored for the
+whole of the opponent's turn and come back on their own.
 
-Pawn and knight captures each play a clash of their own — the knight charges across the ground,
-the pawn crouches and leaps on its victim from above. The other four piece types share the
-knight's until their own are authored, so **no capture is ever silent**.
+**The two commanders talk.** A speech bubble appears over whichever one has something to say,
+in the clear band the margin reserves above it, and the two of them argue: the valkyrie needles
+the necromancer, the necromancer boasts and then notices he is in trouble half a second late.
+What a line says fits what has happened — there are four sets of phrases per side, for an
+ordinary turn, for having just lost a piece, for having just taken one, and for being in check —
+and the situation is judged over **everything since that side last spoke**, not over the last
+move alone, because by the time you are spoken to again the piece you took is two moves old.
+Every line in a set is used once before any repeats, and the order is reshuffled each game.
+
+They speak on **two different clocks**, because their turns are not the same shape. Yours appears
+when the turn passes to you and stands while you think. The opponent's appears **after** its move
+is over, clash included, and stays up once the board is yours again — it replies in well under a
+second, so a line tied to its turn would never be seen at all. Both bubbles are often up at once
+and that is the point, but they never arrive together: the opponent's lands first and yours a beat
+later, so the pair reads as a reply. Neither is shown during a clash or after the game ends.
+
+**Every string in the app is Russian**, the phrases and the twelve or so words of UI alike. That is
+a change of language and not the arrival of localisation: there is no per-locale table, no runtime
+switch and no second language — see non-goal 12 in
+[docs/product-analysis.md](docs/product-analysis.md). Code, comments, commits, the specs and this
+README stay English; `README.ru.md` is still the only Russian document.
+
+**The pause and take-back buttons in the left margin do nothing.** They are drawn, they are placed,
+they are the size a finger needs, and pressing either one changes nothing about the position, the
+board or the turn — there is no pause state and no move history behind them yet. The pause menu
+they will open (restart, leave, dismiss) exists as a layout that only the render harness can put on
+screen. This is stated here rather than left to be discovered, because a dead control in front of a
+playtester silently changes what the session measured.
+
+Each of the six piece types carries its own weapon on the shared rig — pawn a club, knight a
+spear, bishop an orb staff, rook a broad blade, queen a flame staff, king a cruciform sword — the
+same shape on both sides, visible on the board as the second identity channel. The first is the
+crest above the piece: six hues ordered by value rather than picked freely — pawn lime, knight
+green, bishop turquoise, rook blue, queen violet, king rose — because at board size the crest
+alone does not tell the six silhouettes apart.
+
+There are three clashes now. The knight charges across the ground and the pawn crouches and
+leaps on its victim from above, each with a clash of its own. Bishop, rook and king share an
+overhead strike by name — the attacker barely crosses the floor before the smash lands, and the
+defender is knocked backwards, which no other clash does — and the queen falls back to the
+strike until it gets one of its own. Three distinct lengths, so no two read as one: the charge
+1.90 s, the pounce 1.80 s, the strike 1.70 s, impact 0.522–0.538 s measured on the device. **No
+capture is ever silent.**
 
 ## Deliberately not in this project
 
 This prototype is aggressively scoped. **No lessons, puzzles, hints or coaching. No story
 campaign or bosses. No skins, XP, levels or progression. No 3D. No online play or accounts. No
-ads, IAP or monetization of any kind. No iOS. No tablet or landscape layout. No analytics.**
+ads, IAP or monetization of any kind. No iOS. No tablet layout, and no portrait. No analytics.**
 
 Each of those is a decision with a reason, not a "later" — see
 [docs/product-analysis.md](docs/product-analysis.md), which lists sixteen of them.
@@ -104,31 +155,43 @@ The animation is the product, so the frame budget is the spec, not a nice-to-hav
 |---|---|---|
 | Sustained fps through the clash | ≥50 | 59.2–59.6 |
 | Capture tap → first clash frame | <200 ms | 4–32 ms |
-| Total clash duration | ≤2.0 s | 1.82–1.92 s |
+| Total clash duration | ≤2.0 s | 1.70–1.93 s (three distinct lengths, see below) |
 | Opponent's reply | <1 s | 39–44 ms + a deliberate 350 ms pause |
 | Cold start → interactive board | ≤3.0 s | 2.43–2.56 s |
-| Draw calls, board + clash on screen | ~60 | 35 |
-| Draw calls, board with marks and the turn indicator | ~60 | 8–10 |
+| Draw calls, board + clash on screen | ~60 | 33 |
+| Draw calls, board with marks and both margins | ~60 | 4 |
+| Draw calls, the same board with a speech bubble over each commander | ~60 | 10 |
 
 Measured 2026-08-19 over four captures, an idle baseline and a cold start, on top of the
-2026-08-18 pass that produced the cold-start figure. Frame times come from inside the engine,
+2026-08-18 pass that produced the cold-start figure; the draw-call line for the board was
+re-measured 2026-08-20, after the turn card was deleted and the commanders, the pedestal and the
+two controls took its place. The total-clash-duration and board-plus-clash draw-call lines were
+also re-measured 2026-08-20, the same day the board turned landscape and the strike clash and its
+per-type weapons landed; the earlier figures did not survive either change. The bubble line is
+from the same render harness on the same day and
+is a cost per bubble, not per line: a rounded panel, its tail and one run of glyphs, three draw
+calls each. Frame times come from inside the engine,
 never from `dumpsys gfxinfo`
 ([ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md)).
 
-**One number here misses its budget, and it is stated rather than smoothed over.** Scoped to the
-clash itself rather than to a five-second reporting window, every clash drops **one** vsync — 1 in
-108 frames, against an idle baseline in the same session that drops 1 in ~892 — so a dropped
-vsync *is* attributable to the clash, and the earlier reading that said otherwise was measuring
-too coarse a window. The stall is 29.5 ms for the knight's charge and 53–58 ms for the pawn's
-pounce, against a 20 ms budget. It reproduces warm as well as cold, so it is not a first-use cost.
-Neither is visible as stutter at 59+ fps, and fixing it is scheduled work rather than a surprise.
+**Every clash used to drop exactly one vsync. It no longer does, and the reason is not known.**
+Every session through Day 8 measured one dropped frame per clash — a 29.5 ms stall for the
+knight's charge, 53–58 ms for the pawn's pounce, against a 20 ms budget — and it reproduced warm
+as well as cold, so it read as a real cost rather than a first-use one. The last
+`tools/frametime.sh --cold` run, taken after the board turned landscape and the weapons landed on
+the pieces, measured **dropped=0** on the same clash, cold and warm. Nothing done since was aimed
+at that stall, so this is not presented as a fix — it is an unexplained change, and it could come
+back as easily as it went away.
 
 The cold-start figure is launch to the first frame that draws the board *and* accepts a tap
 (`PAWNCH_READY` in logcat); the activity's own first frame comes 917–995 ms after launch. The
 board's marks cost nothing — they are textured quads from the piece atlas and batch with the
-figures — but the turn indicator draws its own panel and figure, which is the 4–6 draw calls
-between this table and the last one, and the duel panel still does not give its ~25 back when it
-closes.
+figures — and neither do the margins: the commanders, the graveyards, the pool of light under the
+active commander and the two controls are all regions on that same page, so a full board with both
+margins is 64 square fills and one unbroken run of quads. It was 8–10 until Day 9, and the
+difference was the turn card, which drew its own panel and its own figure. The duel panel still
+does not give its ~25 back when it closes, which is why a board measured straight after a clash
+reports 29.
 
 Measured on: **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`), MediaTek Helio G99, Mali-G57 MC2,
 2400x1080 landscape, Android 16 (SDK 36), arm64-v8a. Its GPU is a step above the Snapdragon 680 /
@@ -168,7 +231,7 @@ godot --rendering-driver opengl3 --script tests/render_board_states.gd -- /tmp/p
 Like `tests/render_board_pieces.gd` it needs a real window and the OpenGL driver, not
 `--headless`.
 
-The build carries a **Duel** button in the top-left corner that plays the clash without a
+The build carries a **Дуэль** button in the top-left corner that plays the clash without a
 capture. On the 2400×1080 device that is `adb shell input tap 50 42` — it sits in the strip beside
 the board, so it cannot select a piece by accident. A board square's centre is
 `x = 660 + file_index*135 + 68`, `y = (8 - rank)*135 + 68`, with `file_index` 0 for the a-file. Everything the app reports on device is a
