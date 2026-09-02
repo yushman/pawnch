@@ -258,22 +258,39 @@ recordable; block C answers the question; only then does block D produce numbers
 
 ## Block C — the verdict, which is what today is actually for
 
-**Deferred to Day 10, 2026-08-17.** The user cut the kill checkpoint mid-session: the verdict is
+**Reached on Day 10, 2026-09-02, and only half of it could be done.** Ani Chess 3D is no longer
+installed on the device -- `adb shell pm list packages | grep -i chess` returns nothing -- and
+sideloading it from an APK mirror was refused. Offered the choice, the owner cut the comparison
+rather than the day: **the verdict is to be written on our recording alone, and the fact that no
+comparison was made is recorded rather than glossed.** See the devlog entry for 2026-09-02.
+
+**Originally deferred to Day 10, 2026-08-17.** The user cut the kill checkpoint mid-session: the verdict is
 no longer being answered today, and the sprint continues to Day 4 regardless of what these
 recordings would have shown. None of Block C was attempted — no `screenrecord`, nothing written
 to `docs/media/` (which still does not exist), no Ani Chess 3D comparison. See the devlog entry
 for 2026-08-17 for the full reasoning; see `docs/mvp-plan.md` Day 10 for where this landed.
 
-- [ ] **15 s vertical screen recording of the clash, in the repo.**
+- [x] **15 s screen recording of the clash, in the repo.**
       *Verify:* `adb shell screenrecord --size 1080x2400 --time-limit 15 /sdcard/pawnch-clash.mp4`
       while driving the clash with `adb shell input tap 125 53`, then `adb pull` into
       `docs/media/`. The file plays and shows at least three clashes.
-      **Deferred to Day 10.**
+      **Done 2026-09-02** (device `xc95498pssdi7prg`, `2312FPCA6G`) --
+      `docs/media/day10-clash-ours.mp4`, 14.98 s, **six** clashes, driven with
+      `adb shell input tap 50 42` at 2.2 s intervals under
+      `adb shell screenrecord --size 2400x1080 --time-limit 15`. Two things in the verify line
+      above are stale and were adapted rather than followed: **`--size 1080x2400` is the wrong way
+      round** now that the game is landscape (Day 8), and the debug button is at `50 42`, not
+      `125 53` -- tapping the old coordinate produced no clash at all. Re-encoded to H.264 crf 23
+      at 1600 px wide, 35.8 MB -> 2.6 MB, with the frames checked before and after the re-encode.
 
 - [ ] **15 s vertical recording of the equivalent capture in Ani Chess 3D, same device.** Already
       installed.
       *Verify:* same `screenrecord` command, same device, pulled into `docs/media/` beside ours.
-      **Deferred to Day 10.**
+      **Not done, and not deferred again -- cut by the owner on 2026-09-02.** "Already installed"
+      stopped being true somewhere in the sixteen days between this task being written and being
+      reached; the package is gone from the device. Installing it needs Play Store and a person at
+      the phone, and an APK mirror was not an acceptable substitute. There is no Ani Chess 3D
+      recording in `docs/media/` and there is not going to be one from this session.
 
 - [ ] **⛔ Answer the question, dated, in the devlog, looking at both recordings side by side:**
       *does this read as PvZ-grade juice, and does it obviously win against Ani Chess 3D?* Not "is
@@ -281,8 +298,24 @@ for 2026-08-17 for the full reasoning; see `docs/mvp-plan.md` Day 10 for where t
       cut order steps 1 and 2 fire immediately.
       *Verify:* the verdict is a written sentence in `docs/devlog.md` that says yes or no first and
       explains second.
-      **Deferred to Day 10 — not answered.** The user chose to continue to Day 4 without this
-      gate. No verdict sentence exists; do not write one on this session's evidence.
+      **Still open on 2026-09-02, and deliberately left for the owner.** The question as written
+      is two questions -- "does this read as PvZ-grade juice" and "does it obviously win against
+      Ani Chess 3D" -- and the second is now unanswerable from this repository, because the
+      comparison was cut. The first needs a person's eye on a 15 s clip, and this project's own
+      standard says an agent's viewing does not count as one (Day 7: "F2 -- twenty viewings of the
+      strike -- was not done by a person. Eight by an agent, which is not the same thing and is not
+      being counted as it"). What this session did instead of forging the sentence was give it
+      something to stand on: `docs/media/day10-clash-ours.mp4`, and the defect below.
+      **The verdict is one sentence and it is the owner's to write.**
+
+- [ ] **The recording shows a defect any verdict has to account for.** The clash's payoff is
+      currently its weakest second. `docs/media/day10-headless-torso-floating-crest.png`, pulled
+      from the recording at t=4.35 s: after impact the skull has already left frame, the skeleton is
+      a small headless torso, and the yellow pawn crest hangs unattached in the air beside it. This
+      is `duel-panel-and-rig`'s known 9/13 debt seen at full size rather than described, and it is
+      the last thing on screen before the panel closes.
+      *Verify:* the frame is in `docs/media/`, and whatever verdict gets written says whether it
+      changes the answer.
 
 ## Block D — the numbers
 

@@ -3,13 +3,27 @@
 # no error -- is caught by a check that only helps on the day someone remembers to
 # run it, which is why this exists.
 #
-# Deliberately narrow: no Android SDK, no device, no emulator, no network for the
-# app under test. The APK build, tools/check_no_internet.sh and the frame-timing
-# ritual all need hardware this runner does not have, and pretending otherwise
-# would make a green tick mean less than it does. What this proves is exactly the
-# suite: chess correctness by perft, board/rules agreement over 200 random games,
-# skip safety across three clashes, and that all six attacker types resolve to a
-# clash of non-zero duration.
+# Two jobs, and the line between them is hardware.
+#
+# `suite` proves what a headless engine can prove: chess correctness by perft,
+# board/rules agreement over 200 random games, skip safety across three clashes,
+# and that all six attacker types resolve to a clash of non-zero duration.
+#
+# `apk` builds the Android APK and runs the permissions gate on it. This file used
+# to argue that an APK build did not belong on a runner. Half of that was right and
+# half was not: the Android SDK and Godot's export templates install here fine, and
+# tools/check_no_internet.sh only needs aapt2, which comes with the SDK. What still
+# does not belong here is the device work -- installing, playing, and the
+# frame-timing ritual -- because a runner has no phone, and a green tick that
+# claimed otherwise would mean less than it does.
+#
+# The runner never sees the release signing key. It builds the debug APK; the
+# signed release is built locally by `tools/build.sh --release`. Putting a release
+# keystore into repository secrets to sign artifacts nobody installs would trade a
+# real, unrotatable risk for no benefit.
+#
+# A clean checkout every run is also the fresh-clone build check: an APK that
+# builds here is an APK that builds from a fresh clone.
 name: suite
 
 on:
@@ -49,3 +63,69 @@ jobs:
         # last one because Godot exits 0 whatever happens to a --script file, so a
         # suite that silently ran nothing would otherwise pass.
         run: godot --headless --script tests/run_headless.gd
+
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: 4.7.1
+      # Preinstalled on the GitHub-hosted Ubuntu image. Godot takes the default of
+      # its `export/android/android_sdk_path` editor setting from ANDROID_HOME and
+      # `export/android/java_sdk_path` from JAVA_HOME, so a runner with no editor
+      # settings file at all still finds both. The debug keystore Godot needs is
+      # one it creates for itself when it is missing.
+      ANDROID_HOME: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Godot ${{ env.GODOT_VERSION }}
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download"
+          FILE="Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          curl -fsSL -o godot.zip "$BASE/${GODOT_VERSION}-stable/${FILE}.zip"
+          unzip -q godot.zip
+          mkdir -p "$HOME/.local/bin"
+          mv "$FILE" "$HOME/.local/bin/godot"
+          chmod +x "$HOME/.local/bin/godot"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Cache the Android export templates
+        id: templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.stable
+          key: godot-android-templates-${{ env.GODOT_VERSION }}
+
+      - name: Fetch the Android export templates
+        # The .tpz is 1.3 GB and carries every platform; only the three Android
+        # entries are extracted, and the cache above means this runs once per
+        # engine version rather than once per push.
+        if: steps.templates.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download"
+          curl -fsSL -o templates.tpz \
+            "$BASE/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          DEST="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$DEST"
+          unzip -q -j templates.tpz \
+            'templates/android_debug.apk' \
+            'templates/android_release.apk' \
+            'templates/android_source.zip' -d "$DEST"
+          ls -l "$DEST"
+
+      - name: Build the debug APK
+        # tools/build.sh is the same entry point used on the developer machine --
+        # there is deliberately no second build path here to drift from it.
+        run: tools/build.sh
+
+      - name: The permissions gate
+        # Also run inside tools/build.sh; repeated as its own step so that a red
+        # run names this rather than "the build script failed".
+        run: tools/check_no_internet.sh build/pawnch.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pawnch-debug-apk
+          path: build/pawnch.apk
+          retention-days: 7

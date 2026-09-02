@@ -5,14 +5,21 @@ impact, screen shake, VFX, sound and haptics — instead of a piece silently van
 
 [Русская версия](README.ru.md)
 
-> **Status: in development, day 9 of 12 — feature freeze.** There is no installable build yet,
-> but the game runs on the target phone: a full game was played to checkmate on it on
-> 2026-08-23, every capture cuts to the duel, and the numbers below are measured on that device
-> rather than estimated. There is an opponent to play against, and every piece type resolves to
-> a clash: the knight charges, the pawn pounces, and bishop, rook, queen and king share an
-> overhead strike. **The queen shares it by decision, not because it is unfinished** — see below.
-> What is missing is the sound and polish pass. Neither bespoke animation has yet been judged
-> against the app it has to beat.
+> **Status: a signed, installable prototype — 2026-09-02.** There is a build you can put on a
+> phone now: `tools/build.sh --release` produces a release-signed APK, it installs as a fresh
+> package, it cold-starts to a playable board in 2.95 s, and it plays a full clash with the
+> phone in airplane mode. A full game was played to checkmate on the target device on
+> 2026-08-23 and every number below was measured on that device rather than estimated. There
+> is an opponent to play against, and every piece type resolves to a clash: the knight charges,
+> the pawn pounces, and bishop, rook, queen and king share an overhead strike. **The queen
+> shares it by decision, not because it is unfinished** — see below.
+>
+> **What is missing is the answer.** This sprint's stated output was one animation *and a
+> verdict*: does a clash built by one person in a fortnight visibly beat Ani Chess 3D? A 15 s
+> recording of six clashes exists — [docs/media/day10-clash-ours.mp4](docs/media/day10-clash-ours.mp4),
+> recorded on the phone on 2026-09-02 — and the side-by-side against Ani Chess 3D was cut the
+> same day, because that app is no longer installed on the phone. **The verdict is unwritten.**
+> The sound and polish pass is also undone.
 
 ## What it is
 
@@ -148,10 +155,26 @@ ads, IAP or monetization of any kind. No iOS. No tablet layout, and no portrait.
 Each of those is a decision with a reason, not a "later" — see
 [docs/product-analysis.md](docs/product-analysis.md), which lists sixteen of them.
 
-Known and accepted limitations of the prototype itself: **the bot plays badly on purpose** (it
-is a one-ply capture-greedy scan, chosen because a capture-hungry opponent generates more of
-the thing under test — see [ADR-0005](docs/adr/0005-capture-greedy-bot-not-a-real-engine.md)),
-there is no save or resume, and it is Android landscape only.
+Known and accepted limitations of the prototype itself, stated so nobody has to discover them:
+
+- **The bot plays badly on purpose.** A one-ply capture-greedy scan, chosen because a
+  capture-hungry opponent generates more of the thing under test — see
+  [ADR-0005](docs/adr/0005-capture-greedy-bot-not-a-real-engine.md).
+- **Android only, landscape only.** No iOS, no tablet layout, no portrait.
+- **No save and no resume.** Closing the app loses the game.
+- **The sound is two generated effects, not a sound pass.** A swing and an impact, both written
+  by `tools/sfx.py`; the 4–6 effect set, the haptic tuning on device and the skip-clashes
+  toggle are undone.
+- **The queen shares the overhead strike** with bishop, rook and king rather than having a
+  clash of her own. A decision, taken 2026-08-23 — see the three clashes above.
+- **The pause and take-back buttons are drawn and do nothing.** They are the size a finger
+  needs and pressing either changes nothing.
+- **A clash leaves the duel panel's ~25 draw calls submitted after it closes**, so an idle
+  board reads 29 rather than 7 for the rest of the session. Well inside the ~60 budget,
+  measured, and not fixed.
+- **After impact the skeleton is a headless torso with its crest hanging in the air** — a
+  known rig defect, visible in
+  [docs/media/day10-headless-torso-floating-crest.png](docs/media/day10-headless-torso-floating-crest.png).
 
 ## Measured performance
 
@@ -210,6 +233,13 @@ unbroken run of quads. That figure is 7 on the phone; the 4 quoted here until 20
 render harness rather than from the device. The duel panel still does not give its ~25 back when it
 closes, which is why a board measured straight after a clash reports 29 and stays there.
 
+The release APK was checked on the same phone on 2026-09-02, as a fresh install rather than an
+overwrite of the debug build: cold start to an interactive board **2.95 s**, and one capture
+(`black_pawn` × `white_pawn`, the pounce) with first clash frame at **28 ms**, impact at
+**0.550 s** and the clash done at **1.813 s** — the same figures the debug build gives. Repeated
+with the phone in airplane mode: identical, 28 ms / 0.550 s / 1.813 s, and the board still
+equalled `RulesAdapter.fen()` at the end of the clash.
+
 Measured on: **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`), MediaTek Helio G99, Mali-G57 MC2,
 2400x1080 landscape, Android 16 (SDK 36), arm64-v8a. Its GPU is a step above the Snapdragon 680 /
 Adreno 610 class the budgets above were written against, so numbers measured on it are
@@ -222,12 +252,18 @@ templates, a JDK and the Android SDK.
 
 ```
 git clone <this repo>
-tools/build.sh              # headless export -> build/pawnch.apk
-tools/deploy.sh             # build, install and launch on the attached device
+tools/build.sh              # headless debug export -> build/pawnch.apk
+tools/build.sh --release    # signed release export -> build/pawnch-release.apk
+tools/deploy.sh             # build, install and launch the debug build on the attached device
 tools/check_no_internet.sh  # fails if the APK declares android.permission.INTERNET
 tools/frametime.sh --cold   # cold-start ms, worst frame ms, frames over 20 ms
 godot --headless --script tests/run_headless.gd   # the whole test suite, 244 checks, ~55 s
 ```
+
+Every push builds the debug APK on a GitHub Actions runner and runs the permissions gate on it
+(`.github/workflows/suite.yml`, job `apk`), which is also the fresh-clone build check: a runner
+checks out clean every time. The runner never sees the release signing key — the signed build
+is local only, and why is in that file's header.
 
 `tests/run_headless.gd` is a small runner that decides the exit code — 2 if the suite did not
 compile, 1 if it ran fewer checks than its floor, 0 otherwise — and every check lives in
@@ -284,9 +320,66 @@ keytool -genkeypair -v -keystore ~/Library/Application\ Support/Godot/keystores/
 HyperOS (MIUI) devices, including the Redmi Note 13 4G above, need the **Install via USB**
 developer toggle enabled or `adb install` fails with a permission error.
 
+### Signed release build
+
+```
+tools/build.sh --release    # -> build/pawnch-release.apk
+```
+
+It needs three credentials — the keystore path, its alias and its password — and it **fails and
+names the one that is missing** rather than falling back to a debug signature. It also verifies
+its own output with `apksigner` and refuses an APK carrying `CN=Android Debug`. Nothing about
+this path is in the repository: `export_presets.cfg` is committed and holds no passwords.
+
+The credentials come from the environment, or from `~/.pawnch/release-signing.env` if the
+environment does not carry them:
+
+```
+PAWNCH_KEYSTORE="$HOME/.pawnch/pawnch-release.keystore"
+PAWNCH_KEYSTORE_USER="pawnch"
+PAWNCH_KEYSTORE_PASS="…"
+```
+
+Both that file and the keystore live outside the repository, in `~/.pawnch/`, mode 600.
+`.gitignore` also excludes `*.keystore`, `*.jks`, `*.p12` and `*.env` inside the tree, so a key
+that lands there by accident is still not committable. Generate one with:
+
+```
+keytool -genkeypair -v -keystore ~/.pawnch/pawnch-release.keystore -storetype PKCS12 \
+  -alias pawnch -keyalg RSA -keysize 4096 -validity 10950 \
+  -dname "CN=pawnch, OU=pawnch, O=pawnch, L=, ST=, C="
+```
+
+**An Android signing key cannot be rotated.** If `~/.pawnch/pawnch-release.keystore` or its
+password is lost, every phone that already has this app installed can never receive an update
+of it — the only way forward is a new package name and a new install. Back up both, offline,
+and never commit either.
+
+Verify what a built APK is actually signed with, rather than trusting the build log:
+
+```
+apksigner verify --print-certs build/pawnch-release.apk
+```
+
+A release-signed APK cannot be installed over a debug-signed one. Uninstall first —
+`adb uninstall com.pawnch.game` — or the install fails with
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match`.
+
 
 Runs fully offline. The manifest contains no `INTERNET` permission, by design — this is meant
 to be a phone a parent can hand over without reading a privacy policy.
+
+## What it looks like
+
+[docs/media/day10-clash-ours.mp4](docs/media/day10-clash-ours.mp4) — 15 s, six clashes, recorded
+off the phone on 2026-09-02. It is a recording of the debug build driven from `adb`, not a
+trailer: the clashes are started by the on-screen **Дуэль** button, so they come one after
+another rather than at the pace a game produces them.
+
+**It shows the rig defect as well as the clash.** After impact the skeleton is a headless torso
+with its crest hanging unattached in the air — one frame of it is
+[docs/media/day10-headless-torso-floating-crest.png](docs/media/day10-headless-torso-floating-crest.png).
+Known, on the debt list, not fixed.
 
 ## Documentation
 
@@ -301,8 +394,21 @@ The `docs/` directory is published deliberately; it shows how the decisions were
 
 ## License
 
-Not yet chosen for the game itself.
+**The code is MIT** — see [LICENSE](LICENSE).
+
+**The art is not.** Every human figure in the game — the duel characters, the board pieces, the
+graveyard figures, the margin commanders — is derived from free Craftpix packs under the
+[Craftpix File License](https://craftpix.net/file-licenses/). That licence permits shipping and
+modifying the art inside a game, and its **clause 3.1.1 forbids any of it ever being used as
+input to an AI or machine-learning system** — not as training data, not as a style reference,
+not once. That is an operating rule for this project, not a footnote: it has already changed
+the design once ([ADR-0007](docs/adr/0007-identity-in-crest-and-weapon-on-a-shared-body.md)).
 
 Chess move generation is vendored from
 [thearst3rd/stopwaitingforgodot-chess](https://github.com/thearst3rd/stopwaitingforgodot-chess)
-(`vendor/chess/`), © 2021 Terry Hearst, MIT licence — see `vendor/chess/LICENSE`.
+(`vendor/chess/`), © 2021 Terry Hearst, MIT licence — see `vendor/chess/LICENSE` and
+`vendor/chess/PROVENANCE.md`.
+
+Every third-party work that ships inside the APK is named, with its terms and what they permit,
+in **[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)**. Read it before redistributing anything
+from here.

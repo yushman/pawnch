@@ -3479,6 +3479,290 @@ looking for the missing queen clash arrives.
 
 No ADR was edited today.
 
+## 2026-09-02 — Day 10: a signed build, a licence, and the answer still missing
+
+Ten calendar days passed between Day 9 and today with no work on this. The sprint's day numbers
+and the calendar have come apart, and from here everything is dated by the calendar. This is
+sprint Day 10 — release — and it ran in two halves: `knight-takes-pawn-clash` Block C in the
+morning, `signed-release-and-licence` after it.
+
+**Say the important thing first: the sprint's stated output is one animation *and an answer*, and
+after nine working sessions there is still no answer.** There is a recording now, which there was
+not this morning. There is no verdict sentence, the comparison it was supposed to be written
+against was cut today, and nothing below changes that.
+
+### Block C — the recording exists, the comparison does not, and the verdict is the owner's
+
+Recorded in full in `openspec/changes/knight-takes-pawn-clash/tasks.md`; the short version.
+
+`docs/media/day10-clash-ours.mp4` — 14.98 s, **six clashes**, from the phone, driven with
+`adb shell input tap 50 42` under `adb shell screenrecord --size 2400x1080 --time-limit 15`.
+Two things in the task's own verify line were stale by sixteen days and were adapted rather than
+followed: `--size 1080x2400` is the wrong way round since the game turned landscape on Day 8, and
+the debug button moved to `50 42` — the recorded `125 53` produces no clash at all.
+
+**The Ani Chess 3D half was cut by the owner.** `adb shell pm list packages | grep -i chess`
+returns nothing: the app that was "already installed" when the task was written is gone from the
+device, and an APK mirror was refused. There is no comparison recording and there will not be one
+from this session.
+
+**The verdict sentence is not written and was not written by me.** The question is two questions —
+"does this read as PvZ-grade juice" and "does it obviously win against Ani Chess 3D" — and the
+second is now unanswerable from this repository. The first needs a person's eye, and this
+project's own standard, set on Day 7, is that an agent's viewing is not a person's and is not
+counted as one. So it stays open, with the clip to stand on.
+
+The clip also exposes a defect the verdict has to account for:
+`docs/media/day10-headless-torso-floating-crest.png`, pulled from it at t=4.35 s — after impact
+the skeleton is a small headless torso with its yellow pawn crest hanging unattached in the air
+beside it. That is `duel-panel-and-rig`'s known 9/13 debt seen at full size instead of described,
+and it is the last thing on screen before the panel closes. Both READMEs now say so out loud
+rather than letting a viewer find it.
+
+### The licence, decided
+
+**MIT for the code**, `LICENSE` at the root, © 2026 — the copyright line carries the git identity
+`ivyush` and wants replacing with a legal name before the repo is public.
+
+The art is **not** covered by it and is stated separately in `THIRD-PARTY-NOTICES.md`, which names
+every third-party work that ships inside the APK with its own terms: the vendored chess rules
+(MIT, © 2021 Terry Hearst, `vendor/chess/LICENSE` + `PROVENANCE.md`), the Craftpix art packs
+— the two the rig comes from and the six the weapons come from —
+and the two generated sound effects and six generated crests, which are ours. The file opens with
+a five-row table, because the whole point is that a reader can find out what they may do with the
+APK, the code and the art *separately* without opening `docs/adr/`.
+
+**Craftpix clause 3.1.1 is written there as the operating rule it is, not as a footnote**: pack
+art may be shipped and modified, and none of it may ever be given to an image model — not as
+training data, not as a style reference, not as a `--ref` argument, not once. It is in
+`THIRD-PARTY-NOTICES.md` in full and in the licence section of both READMEs in one sentence,
+which is where someone about to feed a sprite to a generator would actually be looking. It has
+already changed this project's design once (ADR-0007 decisions 7 and 8) and that is said too.
+
+### The signed release build
+
+**The ignore rules went in before the key existed**, which is the only order that is safe:
+`.gitignore` gained `*.p12`, `release-signing.env` and `*.env` beside the `*.keystore` and `*.jks`
+that were already there, with a comment saying why. Then the key:
+
+```
+$ keytool -genkeypair -v -keystore ~/.pawnch/pawnch-release.keystore -storetype PKCS12 \
+    -alias pawnch -keyalg RSA -keysize 4096 -validity 10950 \
+    -dname "CN=pawnch, OU=pawnch, O=pawnch, L=, ST=, C="
+Generating 4 096 bit RSA key pair and self-signed certificate (SHA384withRSA) with a validity of 10 950 days
+[Storing /Users/ivyush/.pawnch/pawnch-release.keystore]
+```
+
+**The keystore lives outside the repository, in `~/.pawnch/`, mode 600, and so does its
+password** — a 32-character random string in `~/.pawnch/release-signing.env`, also 600, generated
+rather than invented. The change's verify line asked for `git check-ignore -v <keystore>` to name
+the rule, which assumes the key sits inside the tree and is ignored. It does not: outside the tree
+is strictly safer, because an ignored file is one `git add -f` or one bad `.gitignore` edit from
+being committed and an absent one is not. The ignore rules are there anyway, as the second lock,
+and they were checked:
+
+```
+$ git check-ignore -v pawnch-release.keystore release-signing.env build/pawnch-release.apk
+.gitignore:20:*.keystore	pawnch-release.keystore
+.gitignore:24:*.env	release-signing.env
+.gitignore:4:build/	build/pawnch-release.apk
+$ git status --porcelain          # after generating the key: no credential in it
+```
+
+`tools/build.sh` grew a `--release` mode rather than being forked, so there is one build path and
+not two that drift. It reads three credentials from the environment, falling back to
+`~/.pawnch/release-signing.env`, and hands them to Godot through
+`GODOT_ANDROID_KEYSTORE_RELEASE_PATH/USER/PASSWORD` — which exist in the 4.7.1 binary
+(`strings` confirms all six debug/release names) and are the reason no password has to go anywhere
+near the committed `export_presets.cfg`.
+
+**Missing credentials fail and name the missing one**, three ways:
+
+```
+$ PAWNCH_SIGNING_ENV=/nonexistent tools/build.sh --release
+missing signing credential: PAWNCH_KEYSTORE
+$ PAWNCH_SIGNING_ENV=/nonexistent PAWNCH_KEYSTORE=… PAWNCH_KEYSTORE_USER=pawnch tools/build.sh --release
+missing signing credential: PAWNCH_KEYSTORE_PASS
+$ … PAWNCH_KEYSTORE=/tmp/nope.keystore … tools/build.sh --release
+missing signing credential: the keystore file /tmp/nope.keystore does not exist
+```
+
+and the build:
+
+```
+$ tools/build.sh --release
+built build/pawnch-release.apk ( 52M)
+V3.0 Signer: certificate DN: CN=pawnch, OU=pawnch, O=pawnch, L=, ST=, C=
+V3.0 Signer: certificate SHA-256 digest: 7cbe16b2a63b33f635d6286b0399e8b475faaacd09e740283465885e05ee7025
+no-internet check: PASS (no permissions declared at all)
+```
+
+That SHA-256 is the keystore's own, checked against `keytool -list -v`. The script verifies its
+own output with `apksigner` and refuses a `CN=Android Debug` certificate, because Godot exits 0 on
+an unsigned export and a green build log has lied in this repo before.
+
+**The first version of that check was wrong and the artifact showed it.** It grepped for
+`Signer #1 certificate DN`, which is what build-tools 36 prints; build-tools 37 prints
+`V3.0 Signer: certificate DN`. The grep matched nothing, `set -e` killed the script one line after
+"built …", and `tools/check_no_internet.sh` never ran — a silent skip of the gate, in the step
+whose whole job is not trusting the log. Matching on the field name only now.
+
+**`tools/check_no_internet.sh` on the release artifact, not the debug one**: PASS, and the APK
+declares no permissions at all. The manifest constraint holds on the thing that would actually be
+handed to someone.
+
+### On the phone, as a real install
+
+`adb install -r` over the debug build fails exactly as the task predicted, which is worth having
+seen once rather than during a real release:
+
+```
+Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.pawnch.game signatures do not match newer version; ignoring!]
+```
+
+Then `adb uninstall com.pawnch.game` → `Success`, and `adb install build/pawnch-release.apk` →
+`Success`. `dumpsys package` reports `firstInstallTime` and `lastUpdateTime` both
+`2026-09-02 13:44:17`: a fresh package, not an overwrite.
+
+**Four installs failed with `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user` before that
+one worked**, and the debug APK failed the same way in the same window, so it was environmental
+rather than anything about the release build — HyperOS refusing, no dialog on screen
+(`mCurrentFocus` stayed on the launcher throughout), no framework restriction in `dumpsys user`.
+It cleared on its own. Two things confused the diagnosis and are worth writing down: an emulator
+appeared on `adb devices` partway through, which turned one command into
+`adb: more than one device/emulator`, and every command since is `-s xc95498pssdi7prg`.
+
+Cold start of the release build, first launch after install:
+
+```
+$ adb shell am start -W -n com.pawnch.game/com.godot.game.GodotAppLauncher
+LaunchState: COLD   TotalTime: 1151
+PAWNCH_READY interactive_at=2950ms
+```
+
+**2.95 s to an interactive board against a 3.0 s budget** — 50 ms of headroom, consistent with
+Day 9's 2.54–2.97 s and just as tight.
+
+One capture played, by walking the e-pawn to e6 until the greedy bot took it:
+
+```
+PAWNCH_BOT move=d7e6 reason=capture victim=pawn ms=18
+PAWNCH_CLASH start fen=rnbqkbnr/pp2pppp/4p3/8/2p5/8/PPPP1PPP/RNBQKBNR w KQkq - 0 4 board=rnbqkbnr/pp1ppppp/4P3/8/2p5/8/PPPP1PPP/RNBQKBNR
+PAWNCH_CUE clash attacker=black_pawn defender=white_pawn clash=pounce fallback=false
+PAWNCH_CUE first_frame t=0.028   impact t=0.549   done t=1.813
+PAWNCH_CLASH end   fen=rnbqkbnr/pp2pppp/4p3/8/2p5/8/PPPP1PPP/RNBQKBNR board=rnbqkbnr/pp2pppp/4p3/8/2p5/8/PPPP1PPP/RNBQKBNR
+```
+
+Stale board at `start`, identical at `end` — the invariant, on the release artifact. And a frame
+pulled out of a `screenrecord` of the release build shows the duel panel drawing correctly: the
+valkyrie with her green knight crest, the skeleton knocked over. It also shows the headless torso.
+
+### Airplane mode
+
+```
+$ adb shell cmd connectivity airplane-mode enable
+airplane_mode_on=1
+Wi-Fi is disabled
+Active default network: none
+```
+
+Cold start, three moves, one capture, with no network at all:
+
+```
+PAWNCH_READY interactive_at=1101ms
+PAWNCH_BOT move=f7e6 reason=capture victim=pawn ms=17
+PAWNCH_CLASH region=clash frames=108 dropped=1 worst_gap=26.9ms cadence=16.77
+PAWNCH_CUE clash attacker=black_pawn defender=white_pawn clash=pounce fallback=false
+PAWNCH_CUE first_frame t=0.028   impact t=0.550   done t=1.813
+PAWNCH_CLASH end   fen=…/4p3/8/6p1/8/PPPP1PPP/RNBQKBNR board=…/4p3/8/6p1/8/PPPP1PPP/RNBQKBNR
+```
+
+**Identical to the networked run to the millisecond**: 0.028 / 0.550 / 1.813 against
+0.028 / 0.549 / 1.813. The one dropped vsync in the clash region is the driver tap Day 9
+identified as the ruler rather than the clash. Airplane mode restored to off afterwards. The
+1101 ms `interactive_at` is not a cold-start number worth quoting — it is the second launch of the
+session with everything in page cache — and it is here only because the airplane-mode run needs a
+launch to have happened.
+
+### The demo video does not ship in the APK, checked rather than assumed
+
+`docs/media/` carries a `.gdignore` precisely so Godot never imports it, and a 2.6 MB mp4 landing
+there this morning is exactly the thing that would quietly gain 2.6 MB of APK. Two release builds,
+one with `docs/media/` in place and one with it moved out of the tree:
+
+```
+with docs/media:    54651776 bytes, 251 files
+without docs/media: 54651776 bytes, 251 files
+```
+
+Byte-identical size and an identical entry list, and `unzip -l | grep -ci docs/` is 0. The
+`.gdignore` is doing its job.
+
+### CI now builds the APK — and this was **reasoned about, not exercised**
+
+`.github/workflows/suite.yml` gains an `apk` job: Godot 4.7.1, the Android export templates, the
+runner's preinstalled SDK at `/usr/local/lib/android/sdk`, then `tools/build.sh` and
+`tools/check_no_internet.sh` on its output, with the debug APK uploaded as an artifact. The
+`suite` job is untouched — the diff removes exactly the seven header lines that argued an APK
+build does not belong on a runner and nothing else. That argument was half right: the device work
+still does not belong there, but the SDK and the export templates install fine and
+`check_no_internet.sh` only needs `aapt2`. The runner never sees the release key, and the file
+says why. A clean checkout every run is also the fresh-clone build check the plan lists
+separately; they are one thing, not two.
+
+**It has never run.** This session does not commit and does not push, so no workflow run exists,
+and the second Block C task — deliberately break the export config, confirm the run goes red,
+revert — could not be attempted at all. That gap sits on top of an existing one already on the
+record: the `suite` job has never gone red on a runner either. Both Block C tasks stay unchecked.
+
+What *was* verified without pushing, because it is the one step with a guess in it: the
+1.28 GB `Godot_v4.7.1-stable_export_templates.tpz` was range-requested for its last 300 KB and its
+central directory parsed, confirming the three entries the workflow extracts are named exactly
+`templates/android_debug.apk`, `templates/android_release.apk` and `templates/android_source.zip`.
+Also confirmed from the binary: `ANDROID_HOME` and `_create_editor_debug_keystore_if_needed` are
+both in 4.7.1, so a runner with no Godot editor settings file still finds the SDK and makes its own
+debug keystore. And `tools/build.sh` now looks for export templates in the Linux location as well
+as the macOS one, which it did not before and which would have failed on the first run.
+
+### Both READMEs
+
+Same commit, same claims, rewritten from "in development, day 9 of 12 — feature freeze / there is
+no installable build yet" to a signed, installable prototype dated today — and both status blocks
+now end with the verdict being unwritten, because that is the truest thing about this project
+today. Added to both: the release build section with the keystore, the credential file, the
+`apksigner` verification and the sentence that matters — **an Android signing key cannot be
+rotated, and losing it means the installed app can never be updated** — the CI line, the licence
+section, a "what it looks like" section linking `day10-clash-ours.mp4` and the defect frame, and
+the limitations list turned from one sentence into eight bullets: bot bad on purpose, Android
+landscape only, no save, two generated sounds rather than a sound pass, the queen on the shared
+strike, the pause and take-back controls drawn and dead, the duel panel's unreturned draw calls,
+and the headless torso.
+
+Their number tables were diffed mechanically after the edit — every figure in the performance
+section of one appears in the other, the only difference being that the Russian text spells one
+of them as a word.
+
+Suite before finishing: `godot --headless --script tests/run_headless.gd` → **244 checks, 0
+failed, 54.7 s**, exit 0. No app code changed today; everything above is packaging, tooling and
+documents.
+
+### What did not get done, and why
+
+- **The verdict.** Owner's, unwritten, named at the top of this entry rather than buried here.
+- **CI, actually running.** Written and locally cross-checked, never executed. Say so.
+- **The deliberate-red-build test.** Impossible without a push.
+- **The old debt, untouched by decision**: the detached-skull defect, the
+  `tools/import_craftpix.py` crest divergence, the legibility test, the duel panel's unreturned
+  draw calls, and the Day-8 juice debt (the full SFX set, haptic tuning, the skip toggle).
+- **The copyright line in `LICENSE` says `ivyush`**, which is a git handle and not a legal name.
+  It needs one before the repo goes public.
+- **The publication question ADR-0007 left open is still open** and is now visible in the new
+  licensing file: the pack-derived art is currently committed (`assets/rig/valkyrie/`,
+  `assets/rig/skeleton_warrior/`, `assets/board/pieces.png`), while the plan recorded on Day 2 was
+  that a public repo would carry the converter and not the art. `THIRD-PARTY-NOTICES.md` describes
+  what is true today. Deciding that is a publication-day decision and it was not taken today.
+
+
 ## Ideas for later
 
 - **The queen's own bespoke clash.** Cut on 2026-08-23 as cut order step 1, and parked here so

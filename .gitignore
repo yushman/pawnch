@@ -13,6 +13,14 @@ target/
 android/
 *.apk
 *.aab
+
+# Signing credentials. The release keystore and its passwords are never committed:
+# an Android signing key cannot be rotated, so a leaked one is unrecoverable.
+# These rules exist before any key is generated -- see README "Signed release build".
 *.keystore
 *.jks
+*.p12
+release-signing.env
+*.env
+
 assets/concepts/
