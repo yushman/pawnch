@@ -54,7 +54,9 @@ If a day ends behind, do not borrow from Day 12. Fire the next cut.
 
 ### Cut order — execute in sequence, do not improvise
 
-1. **M5 → 2 bespoke clashes** (pawn + knight); queen falls back to the generic strike. −1
+1. **M5 → 2 bespoke clashes** (pawn + knight); queen falls back to the shared strike. −1
+   **FIRED — declared 2026-08-23**, on Day 9. Day 6 considered it and did not take it; the code
+   arrived at it on Day 7 without anybody saying so, and Day 9 wrote it down.
 2. **M1 → reduced ruleset** — no castling, no en passant, auto-promote to queen. −0.5
 3. **M2 → pass-and-play**, bot removed. −1 *(costs metric 3, so it is late)*
 4. **M4 → 4 piece types with distinct crests**; rook and bishop share a generic crest, told apart
@@ -244,8 +246,13 @@ something always plays.
 
 ## Day 8 — Queen clash and the rest of the juice
 
-- [ ] Queen bespoke clash, #3 of 3 — *skipped if cut order step 1 already fired on Day 6.*
-      (~4h, *M5 4/4*)
+- [x] ~~Queen bespoke clash, #3 of 3.~~ **Cut. Cut order step 1 fired; declared 2026-08-23.**
+      The code has been in this state since Day 7 — `CLASH_BY_TYPE` holds pawn, knight, bishop,
+      rook and king, and the queen falls through to `FALLBACK_CLASH` — but nothing said so until
+      Day 9, so until then the state of the code was an accident rather than a decision. **M5
+      ships as 2 bespoke clashes plus a shared strike**, and the queen is the most frequent
+      attacker a real game produces (7 of 24 captures in the Day-6 playtest), which is the fact
+      that makes the cut worth stating rather than hiding. (*M5 4/4, not taken*)
 - [ ] Remaining juice: the full 4–6 SFX set, VFX polish, haptic tuning on the real device
       (including the device that ignores amplitude), skip-clashes toggle. (~4h, *M6 2/2*)
 
@@ -288,7 +295,7 @@ See `openspec/changes/knight-takes-pawn-clash/tasks.md` Block C and the devlog e
       `aapt dump permissions` lists **no** `android.permission.INTERNET`. (~4h)
 - [ ] `README.md` and `README.ru.md` in sync: what it is, the golden path, how to build, the
       measured numbers with the named device, and an honest limitations section — the bot plays
-      badly on purpose, Android only, portrait only, no save, whatever the cut order removed.
+      badly on purpose, Android only, landscape only, no save, whatever the cut order removed.
       Plus the 15–30 s demo recording of the knight clash. (~4h)
 
 **Done when:** a fresh clone builds the APK in CI, the APK installs on a wiped phone and runs

@@ -53,7 +53,7 @@ vibrator must not stall the clash.
 
 ## Stack
 
-Godot 4.3+ / GDScript, Compatibility (OpenGL ES 3.0) renderer, Android only, portrait only —
+Godot 4.3+ / GDScript, Compatibility (OpenGL ES 3.0) renderer, Android only, landscape only —
 [ADR-0001](docs/adr/0001-godot-4-gdscript-android-only.md), which also names what that choice
 costs (GDScript has the thinnest chess-library ecosystem of the candidates, and Compatibility
 has no glow/HDR post-processing).

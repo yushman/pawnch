@@ -293,7 +293,7 @@ exercised — `scripts/frame_probe.gd`'s `mark_region_start`/`mark_region_end` a
 `_warm()`/`JuiceBus.warm()` calls described in the 2026-08-17 devlog entry (Day 3, first pass) are
 still wired into `duel_panel.gd`. See `docs/mvp-plan.md` Day 9 for where this landed.
 
-- [ ] **Frame-probe regions, so criterion 2 can be stated at all.** The app marks the start and end
+- [x] **Frame-probe regions, so criterion 2 can be stated at all.** The app marks the start and end
       of a clash on the same clock the probe already uses; the report breaks dropped vsyncs, worst
       gap and frame count into inside-region and outside-region, and a region contained entirely
       within one reporting window is still reported. Without this, a 5 s window containing a 2 s
@@ -301,26 +301,37 @@ still wired into `duel_panel.gd`. See `docs/mvp-plan.md` Day 9 for where this la
       15 s against an idle 0.67) and cannot be subtracted.
       *Verify:* `WINDOW=15 tools/frametime.sh` while driving clashes prints per-clash region rows
       alongside the existing window rows.
-      **Deferred to Day 9.** Code is written (`mark_region_start`/`mark_region_end` in
-      `scripts/frame_probe.gd`, wired from `duel_panel.gd`'s `play()`); not exercised today.
+      **Closed 2026-08-23.** The probe code was already right; the script threw its rows away.
+      `tools/frametime.sh` now prints them beside the window rows with a summary — `clash regions in
+      this window: 26, of which 20 dropped at least one vsync, worst gap 68.5 ms`. A window with no
+      clash in it prints what it printed before.
 
-- [ ] **Extend the boot warm to everything this change added.** Burst texture drawn once, both
+- [x] **Extend the boot warm to everything this change added.** Burst texture drawn once, both
       audio streams played once at inaudible volume, the detached-head duplicate constructed and
       drawn once — all before the first clash can be triggered.
       *Verify:* `tools/frametime.sh --cold`, first clash triggered as soon as the board is
       interactive; the clash region reports no dropped vsync beyond the same-session idle baseline.
-      **Deferred to Day 9.** Code is written (`DuelPanel._warm()`, `JuiceBus.warm()`,
-      `CharacterRig.warm_detach()`); not exercised today.
+      **Exercised and passed 2026-08-23**, six days after the code was written.
+      `WINDOW=25 tools/frametime.sh --cold`, first clash tapped as soon as `PAWNCH_READY` appeared
+      (3.41 s after the script started): `PAWNCH_CLASH region=clash frames=114 dropped=0
+      worst_gap=0.0ms`, against a same-session idle baseline of 4 drops over 3553 frames. The first
+      clash of a cold session costs what a later one costs — in that run it cost less.
 
-- [ ] **Measure criteria 1–3 on the phone and record every number with its command.** Cold-start
+- [x] **Measure criteria 1–3 on the phone and record every number with its command.** Cold-start
       run plus a same-session idle baseline, taken in the same session, in this order: idle
       baseline, cold-start first clash, warm clashes, idle baseline again.
       *Verify:* `tools/deploy.sh`; `WINDOW=15 tools/frametime.sh --cold`; `WINDOW=15
       tools/frametime.sh`; `adb logcat -d | grep -E "PAWNCH_(FRAME|CUE|CLASH)"`. Every figure in
       the devlog carries the command that produced it and the device name `2312FPCA6G`.
-      **Deferred to Day 9.** Only `tools/deploy.sh`'s own cold-start `TotalTime` (1445 ms, then
-      1184 ms after the staging fix rebuild) is on record from today, incidental to deploying —
-      the full idle/cold/warm/idle measurement sequence was not run.
+      **Run 2026-08-23, in the order this line asks for**, on `2312FPCA6G`, with `adb logcat -G 16M`
+      set first: idle baseline → `WINDOW=25 tools/frametime.sh --cold` with the first clash → a
+      warm session of 26 clashes → idle baseline again, plus two controls. Criterion 1 (cold start
+      → interactive board) 2536–2970 ms of 3000. Criterion 2 (dropped vsyncs attributable to the
+      clash) is the day's real finding and it is **half-confirmed at best**: the clash regions
+      dropped 1.27 vsyncs each over 26, but a control of the same 21 `adb shell input tap` calls
+      landing where nothing happens dropped 0.90 each, so most of the count is the driver rather
+      than the clash and this instrument cannot separate them. Criterion 3 stays dropped (see Block
+      E). Every figure and every command is in the 2026-08-23 devlog entry.
 
 ## Block E — documents
 
@@ -353,9 +364,9 @@ still wired into `duel_panel.gd`. See `docs/mvp-plan.md` Day 9 for where this la
       even if the day went badly — especially then.
       *Verify:* the entry exists in `docs/devlog.md`, is dated 2026-08-17, and contains the verdict
       sentence and at least the frame, cue and draw-call figures.
-      **Left unchecked — the verify line as written no longer applies.** An entry for 2026-08-17
-      was appended covering today's session (staging fix, Block A/B on-device results, the two
-      defects found, the scope cut and what got deferred where). It does not and cannot contain a
-      verdict sentence (Block C never ran, on the user's explicit instruction) or draw-call figures
-      (Block D deferred). Not checking this box is deliberate: it should stay open until whichever
-      future session runs Block C and D writes the numbers this line actually asks for.
+      **Still unchecked, and now for one reason instead of two.** An entry for 2026-08-17 was
+      appended covering that session (staging fix, Block A/B on-device results, the two defects
+      found, the scope cut and what got deferred where). The draw-call and frame figures Block D
+      asks for exist now — they are in the 2026-08-23 entry, with the commands. **The verdict
+      sentence still does not exist**, because Block C has never run: no recordings, no Ani Chess 3D
+      comparison, no dated yes/no. That is Day 10's. This box stays open until it is written.

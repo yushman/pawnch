@@ -120,21 +120,25 @@ margins are laid out once rather than twice.
 ## Block F — close the day
 
 - [x] **F1. Suite green**, floor raised with it, three skip sweeps passing.
-- [ ] **F2. On the device.** `tools/deploy.sh`, then look at the board with something to attack,
+- [x] **F2. On the device.** `tools/deploy.sh`, then look at the board with something to attack,
       at both turns, and at an ending.
       *Verify:* device frames in `docs/media/`; `adb shell screenrecord` plus `ffmpeg -vf fps=N`
       for anything that moves, because `screencap` returns a stale frame on this phone.
-      **Partly done, and the gap is deliberate rather than forgotten.** The board with a capture
+      **Closed 2026-08-23 — the missing half is now on the phone.** The board with a capture
       available (including the capture frame and the last-move brackets on one square), white's
       turn and black's turn are all captured on the Redmi Note 13 —
       `docs/media/day9-capture-frame-device.png`, `day9-turn-white-device.png`,
       `day9-turn-black-device.png`, the last one pulled out of `screenrecord` at 10 fps because
-      black's turn lasts 350 ms. **The ending is not**: there is no debug path to force an outcome
-      on the phone and the capture-greedy bot does not walk into a short mate — three attempts
-      ended with it taking the bishop, taking the queen, and wandering its king to d6 where it
-      still could not be mated inside the move budget. The banner is verified in renders at the
-      device's exact resolution on the same Compatibility renderer, which is not the phone. First
-      thing to check on the next device pass.
+      black's turn lasts 350 ms. **The ending is now captured too** —
+      `docs/media/day9-victory-banner-device.png`, the winner's banner over a real mate on the
+      Redmi Note 13, both graveyards still readable in the margins and the mated king on its red
+      cell. Two games were played to checkmate to get it: 25 moves the first time, and the frame was
+      lost because a stray tap 111 px from `RESTART_CENTER` (touch radius 130) restarted the game
+      before the recording; 7 moves the second time — `1.e4 a6 2.Bc4 Ra7 3.Qf3 f6 4.Nc3 Nh6 5.d4 f5
+      6.Bxh6 gxh6 7.Qh5#` — recorded with `adb shell screenrecord` **without touching the screen at
+      all**, which is how a banner that a tap can dismiss or restart has to be captured. Restart from
+      the banner works on the device: `PAWNCH_RESTART turn=white status=in_play fen=rnbqkbnr/… w
+      KQkq - 0 1`.
 - [x] **F3. Devlog entry**, naming any ADR edited in place.
 
 ### What this change does not do

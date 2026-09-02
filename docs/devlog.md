@@ -3166,7 +3166,334 @@ joke a subject. If any of this gets cut, cut `idle` down and let an ordinary tur
 bubble is worth more when it is not always there. Written down here rather than acted on, because
 that is a judgement about a corpus and it wants a child in front of it, not another pass by me.
 
+## 2026-08-23 — Day 9: feature freeze, and the dropped vsync turned out to be the ruler
+
+`freeze-measurements-and-queen-cut`. No behavior was added today. One job: turn every number this
+project quotes into a number it can defend, and turn the one cut that already happened in the code
+into a cut that is written down.
+
+All figures below are from the **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`, serial
+`xc95498pssdi7prg`), MediaTek Helio G99, Android 16, in one afternoon session with
+`adb logcat -G 16M` set first and no live `adb logcat` stream running during any window.
+
+### The cut, declared
+
+**Cut order step 1 has fired. The queen gets no bespoke clash; she shares the strike.** Decided by
+the owner on 2026-08-23. The code has been in this state since Day 7 — `CLASH_BY_TYPE` holds pawn,
+knight, bishop, rook and king, and the queen falls through to `FALLBACK_CLASH` — so this changes no
+clash code at all. What it changes is that the state of the code stops being an accident. It is now
+in `docs/mvp-plan.md` (Day 8 line and the cut-order list), `docs/product-analysis.md` (M5 and cut
+order step 1), both READMEs, and `## Ideas for later` below with what a fourth clash would cost.
+
+The device agrees, three times over, in the game played today:
+`PAWNCH_CUE clash attacker=white_queen defender=black_pawn clash=strike fallback=true`. **`fallback=true`
+is the queen.** M5 ships as two bespoke clashes plus a shared strike.
+
+### Block A — the instrument now reports the clash, not the window around it
+
+`tools/frametime.sh` grepped `PAWNCH_FRAME` only, so the per-clash rows `frame_probe.gd` has been
+printing since Day 3 — `PAWNCH_CLASH region=clash frames=… dropped=… worst_gap=…` — never reached
+its output. They do now, with a summary line: how many clash regions were in the window, how many
+of them dropped at least one vsync, and the worst gap across them. The frame probe is untouched.
+The script's header carries the four-command measurement sequence (idle → cold → warm → idle, with
+the logcat buffer raised first) so the next person runs it in the right order.
+
+**The first version of that grep was wrong and the output showed it.** `grep -o "PAWNCH_CLASH
+region=.*"` matched two rows that read `PAWNCH_CLASH region=''` — because `adbd` echoes every
+`adb shell` command line into the same buffer, so my own `adb shell "logcat -d | grep -c 'PAWNCH_CLASH
+region='"` poll matched its own grep. Anchored on the whole row now
+(`grep -oE "PAWNCH_CLASH region=[a-z]+ frames=[0-9]+ …"`). Two phantom clashes in a sample of 28 is
+7% of the denominator; a rate is only as good as its count.
+
+### Block B — the numbers, on the phone
+
+**Cold start.** Three cold starts today:
+
+```
+$ WINDOW=25 tools/frametime.sh --cold
+LaunchState: COLD   TotalTime: 988    ms   START -> PAWNCH_READY = 2588 ms
+                    TotalTime: 1072   ms                           2970 ms
+                    TotalTime: 1022   ms                           2536 ms
+```
+
+`TotalTime` is the activity's own first frame; the number the budget is written against is launch
+intent (`ActivityTaskManager: START u0 … com.pawnch.game`) to `PAWNCH_READY`, the first frame that
+draws the board *and* accepts a tap. **2536–2970 ms against a 3000 ms budget.** That is a pass and
+it is also the tightest this figure has ever been — the README has been quoting 2.43–2.56 s, and
+2.97 s is 30 ms of headroom. Nothing today was aimed at cold start; it has drifted, and the honest
+reading is that the budget is now one bad launch from failing.
+
+**The first clash after a cold start**, tapped as soon as `PAWNCH_READY` appeared in logcat
+(3.41 s after the script started):
+
+```
+PAWNCH_CLASH region=clash frames=114 dropped=0 worst_gap=0.0ms
+PAWNCH_CUE first_frame t=0.032  impact t=0.553  done t=1.913
+```
+
+The 52.0 ms gap at frame 0 of that window is the engine's own cold-start stall, which ADR-0006
+excludes by construction.
+
+**Tap to first clash frame, impact and total, per clash**, over the 26 clashes of the warm session
+(`adb logcat -d | grep -E "PAWNCH_(CUE|CLASH)"`; `t=0` is the tap that committed the capture, not the
+panel opening):
+
+| clash | n | tap → first frame (budget 200 ms) | impact (0.6 s) | total (2.0 s) |
+|---|---|---|---|---|
+| charge — knight | 16 | 8–33 ms | 0.552–0.565 s | 1.904–1.951 s |
+| pounce — pawn | 2 | 8–9 ms | 0.541–0.546 s | 1.808–1.813 s |
+| strike — bishop, rook, queen, king | 8 | 7–33 ms | 0.522–0.538 s | 1.710–1.744 s |
+
+Three distinct lengths, all three budgets met, measured on the device rather than read off the
+authored schedule. The pounce's n=2 is the honest weakness of this table: a real game against a
+capture-greedy bot produces the clashes it produces, and pawns took twice.
+
+**Draw calls**, from a cold start with nothing tapped, then a selection, then a bubble, then a clash
+(`draw_calls_max` off `PAWNCH_FRAME`, all against ~60):
+
+| | measured |
+|---|---|
+| board, both margins, untouched, before any clash | **7** |
+| the same board with a piece selected and its legal-move marks up | **7** |
+| board with a speech bubble over each commander | **10** |
+| board with the clash on screen | **29**, and it stays 29 after the panel closes |
+
+The marks really are free — 7 before and after `PAWNCH_SELECT e2 pawn`, three windows either side.
+**The board's own figure is 7, not the 4 both READMEs have been quoting.** The 4 came from a render
+harness on Day 9b, not from the phone; on the phone the same board reads 7, and a bubble over each
+commander adds 3. Nothing is near the budget either way, but the README was quoting a harness number
+as a device number and now it does not.
+
+### Block C — a full game to checkmate, on the phone
+
+Played through `adb shell input tap` over the computed square→pixel map
+(`x = 660 + file*135 + 68`, `y = (8-rank)*135 + 68`), verified against the log on one quiet move
+before relying on it. **25 moves, `status=checkmate`:**
+
+```
+e2e4 e7e6 d2d4 d8g5 c1g5 f8d6 b1c3 d6h2 h1h2 g7g6 d4d5 e6d5 c3d5 f7f6 d5c7 e8e7 c7a8 f6g5
+d1d5 g8f6 d5g5 b7b6 g5e3 f6e4 e3e4 e7d6 a1d1 d6c5 d1d6 c5d6 h2h3 c8a6 h3d3 a6d3 e4d3 d6c5
+d3c3 c5d6 e1e2 d6e7 e2e3 d7d6 e3e4 g6g5 c3c7 e7e6 f1c4 e6f6 c7f7
+
+PAWNCH_OUTCOME outcome=checkmate winner=white fen=Nn5r/p4Q1p/1p1p1k2/6p1/2B1K3/8/PPP2PP1/6N1 b - - 5 25
+```
+
+**All six attacker types captured**, in that one game, and the greedy bot supplied three of them
+without being asked: `white_bishop×black_queen`, `black_bishop×white_pawn`, `white_rook×black_bishop`,
+`black_pawn×white_pawn`, `white_knight×black_pawn`, `white_knight×black_rook`, `white_queen×black_pawn`,
+`black_knight×white_pawn`, **`black_king×white_rook`** and `white_queen×black_bishop`. The king one had
+to be arranged, and the arrangement is a property of ADR-0005 worth writing down: the bot scores a
+capture as `victim*100 − attacker`, and the king is the most expensive attacker there is, so its king
+only captures when nothing cheaper can take anything better. Hang a **rook** next to it on a square
+white does not defend and it takes with the king every time — `Rd6`, `PAWNCH_BOT move=c5d6
+reason=capture victim=rook`.
+
+**The board and the rules agree at the end, on the device.** The invariant is visible in the log
+either side of a clash — stale at `start`, identical at `end`:
+
+```
+PAWNCH_CLASH start fen=…/8/8/3Q4/PPP2PP1/4KBN1 b - - 0 18 board=…/8/4Q3/3b4/PPP2PP1/4KBN1
+PAWNCH_CLASH end   fen=…/8/8/3Q4/PPP2PP1/4KBN1 b - - 0 18 board=…/8/8/3Q4/PPP2PP1/4KBN1
+```
+
+The verify line as written asks that the *last* clash's `end` FEN equal the position the banner was
+drawn over. It cannot: this game's last capture was on move 18 and the mate came on move 25. What is
+actually assertable — and is asserted — is that at the end of every clash the board placement equals
+`RulesAdapter.fen()`, on the phone, at the end of a real game.
+
+**The victory banner, finally photographed on the device** — `docs/media/day9-victory-banner-device.png`.
+It has never been seen on the phone before, because there is no debug path to force an outcome and the
+bot does not walk into short mates.
+
+And it was nearly not seen today either. The first game's banner was **destroyed by my own tap**: the
+21 dead-corner taps of a control run landed on a finished board, where a tap that is neither the
+restart target nor the close target calls `banner.reopen()`, so the banner came back up without my
+noticing; the next tap I made to reopen it landed 111 px from `RESTART_CENTER` against a
+`RESTART_TOUCH` of 130 and restarted the game instead. Not a defect — both behaviors are the ones the
+game-outcome spec asks for — but it cost a second game. The second was faster: **7 moves,
+1.e4 a6 2.Bc4 Ra7 3.Qf3 f6 4.Nc3 Nh6 5.d4 f5 6.Bxh6 gxh6 7.Qh5#**, and the banner was recorded with
+`adb shell screenrecord` **without touching the screen at all**, which is the lesson. The frame shows
+"МАТ — ПОБЕДИЛИ БЕЛЫЕ", the crowned valkyrie, the necromancer run through, both graveyards still
+readable in the margins, and the mated king on its red cell. Restart from the banner works on the
+device: `PAWNCH_RESTART turn=white status=in_play fen=rnbqkbnr/… w KQkq - 0 1`.
+
+### Block D — the vsync that vanished, and what it actually was
+
+The README said three things: every clash used to drop exactly one vsync, the last run measured zero,
+and nobody knew why. **All three are wrong, and the third is the interesting one.**
+
+First, the rate, over the sample rather than over a run. 26 clashes in one warm session:
+
+```
+$ WINDOW=1200 tools/frametime.sh          # the whole game plus 12 debug clashes
+clash     n   frames  dropped  with_a_drop  worst_ms
+charge   16     1808       18           11      59.1
+pounce    2      216        2            2      56.3
+strike    8      811       13            7      68.5
+TOTAL    26     2835       33           20      68.5      = 1.27 drops per clash
+```
+
+**20 of 26 clashes dropped at least one vsync.** So the Day-8 `dropped=0` was a small-sample artifact,
+exactly as the leading hypothesis said, and the sample that produced it was one clash. Against the
+same session's idle rate — 74 reporting windows after the last clash, 21 942 frames, 31 drops,
+0.00141/frame — a 113-frame clash should have dropped **0.16**. The clash regions dropped **1.27**.
+Eight times the floor. That looks conclusive, and it is wrong.
+
+**Every one of those clashes was started by an `adb shell input tap`, and that is what dropped the
+frame.** Four 60 s runs, same app instance, same 2.7 s cadence, 21 events each:
+
+```
+$ WINDOW=60 tools/frametime.sh                              # nothing at all
+  12 windows  3553 frames   4 dropped   worst 26.6 ms
+$ WINDOW=60 tools/frametime.sh   + adb shell true      x21  # a shell round-trip, no injection
+  12 windows  3551 frames   3 dropped   worst 26.7 ms
+$ WINDOW=60 tools/frametime.sh   + input tap 2390 1070 x21  # a real tap, dead corner, no clash
+  12 windows  3555 frames  19 dropped   worst 32.0 ms
+$ WINDOW=60 tools/frametime.sh   + input tap 50 42     x21  # the same tap, 20 clashes
+  13 windows  3847 frames  22 dropped   worst 108.2 ms
+  20 clash regions, 2254 frames, 23 dropped, 14 with a drop, worst 56.0 ms  = 1.15 per clash
+```
+
+Read down that column. Doing nothing drops 4. Opening a shell and running `true` twenty-one times
+drops 3 — the adb round-trip is free. Injecting twenty-one taps that land on a dead corner and do
+nothing at all drops **19**. Making those same taps each start a full clash drops **22**. The step is
+between rows two and three, not between rows three and four. `adb shell input tap` spawns an
+`app_process` — a Dalvik VM start — on a Helio G99, and it costs about **0.9 dropped vsyncs per tap**;
+the clash on top of it adds 3 drops over 21 clashes, which is inside the noise of a 4-drop floor.
+
+So: **the "one dropped vsync per clash" this project has quoted since Day 4 is a property of the way
+the phone is driven, not of the clash.** It appears once per clash because there is exactly one
+driver tap per clash and it lands on the clash's own first frame.
+
+What I cannot do is subtract it and quote the remainder. There is no way to start a clash from a
+script that does not go through `input`: `sendevent` straight to the touchscreen is refused
+(`/dev/input/event3: Permission denied` — shell is in the `input` group and SELinux still says no on
+HyperOS), and the only tap-free trigger, the bot's own capture, follows the driver tap by well under a
+second. The honest statement is the one that goes in both READMEs: **over 26 clashes the regions
+dropped 1.27 vsyncs each; a control run of the same taps with no clash dropped 0.90 each; the
+difference is not resolvable with this instrument.** A child's finger pays neither.
+
+The git-bisect experiment in the change's Block D is **not warranted and was not run** — its
+precondition was the rate really being zero over the sample, and it is not zero. Nothing to bisect.
+
+The one thing the clash does own is the *size* of the worst gap: 68.5 ms inside a clash region and
+108.2 ms in a window containing one, against 32.0 ms for taps alone and 26.6 ms at idle. The count is
+the ruler; the magnitude is the clash.
+
+### The instrument has a second defect, and it is worse
+
+One `--cold` run today came back reading `dropped=285` out of `frames=290` at `fps=59.7`, which is not
+a hitch, it is nonsense. The field that explains it is at the end of the row: **`vsync=8.33`.**
+
+`frame_probe.gd` read `DisplayServer.screen_get_refresh_rate()` **once, in `_ready()`**, and this
+phone's panel is 120 Hz with a dynamic refresh rate that HyperOS raises and lowers on its own
+(`dumpsys display`: `supportedModes [60.0, 120.00001, 90.0]`, and `mActiveSfDisplayMode` was sitting
+at 120 when this was looked at). On that launch the panel happened to be at 120 when the probe
+looked, so the drop threshold became 1.5 × 8.33 = 12.5 ms, and every ordinary 16.7 ms frame of a
+60 fps app counted as a dropped vsync. Every other run today read `vsync=16.67`, so **all of the
+Block D data above is internally consistent and stands.**
+
+**The obvious fix is wrong and was not taken.** Re-reading the refresh rate per reporting window
+instead of once at `_ready()` does not fix this: a panel that simply *stays* at 120 produces the
+same page of garbage in every window. The defect is not staleness, it is the model — the probe
+assumed the app presents once per panel vsync, and on this hardware it does not. The panel is at
+120 and the app is at 59.6, all day, and those are different numbers.
+
+**Fixed by taking the threshold from the app's own cadence instead of from the panel:** the median
+interval of whatever is being classified, per window and per clash region. Median because the
+outliers are precisely what is being counted, so they must not move the denominator. It needs no
+platform call, it is immune to the panel's mode, and on every run where the panel did read 60 it
+gives the identical 25.0 ms threshold — **so nothing measured before today moves.** The panel rate
+is still read, now once per report rather than once per launch, and still printed, because the two
+disagreeing is exactly what nobody could see this morning: both `PAWNCH_FRAME` and `PAWNCH_CLASH`
+now carry `cadence=` beside `vsync=`.
+
+This is app code on the feature-freeze day, and it is taken anyway because it is the ruler and not
+the game — the same category as the `tools/frametime.sh` change in Block A. Day 11 is the
+measurement day that produces the numbers the launch article quotes, and it runs through this
+instrument. Suite after the change: `godot --headless --script tests/run_headless.gd` → **244
+checks, 0 failed, 62.4 s.**
+
+**Verified on the device, and the failure condition had to be forced rather than waited for.**
+The natural 120 Hz window is at launch and it closes too fast to measure into: `dumpsys display`
+showed `mActiveSfDisplayMode=…peakRefreshRate=120.00001` in the instant before `am start`, and by
+the first reporting window five seconds later the panel had already settled to 60 under the
+60 fps SurfaceView. `settings put system min_refresh_rate 120` does not hold it up either — HyperOS
+takes the panel back down regardless (setting restored to `null` afterwards). So the condition was
+produced directly: `_read_panel_rate()` pinned to 120 in a throwaway build, which is exactly what
+the probe saw this morning, and then reverted.
+
+```
+$ WINDOW=20 tools/frametime.sh            # panel rate pinned to 120 -- the failure condition
+PAWNCH_FRAME frames=294 fps=59.8 dropped=1 worst_gap=26.3ms@5 … cadence=16.76 vsync=8.33
+PAWNCH_FRAME frames=297 fps=59.6 dropped=0 worst_gap=0.0ms@-1 … cadence=16.83 vsync=8.33
+PAWNCH_FRAME frames=297 fps=59.6 dropped=0 worst_gap=0.0ms@-1 … cadence=16.82 vsync=8.33
+PAWNCH_FRAME frames=297 fps=59.6 dropped=0 worst_gap=0.0ms@-1 … cadence=16.68 vsync=8.33
+```
+
+**`vsync=8.33` and `dropped=1,0,0,0`.** This morning the same `vsync=8.33` gave `dropped=285` out
+of `frames=290`. The panel figure is still wrong on that build — it was pinned to be — and it no
+longer matters, which is the whole point of moving the threshold off it.
+
+The clean build then re-verified at 60 Hz, both row kinds and the tool's summary, seven debug
+clashes driven with `adb shell input tap 50 42`:
+
+```
+$ WINDOW=25 tools/frametime.sh
+PAWNCH_FRAME  … dropped=0,3,1,2,1  draw_calls_max=29  cadence=16.67-16.96  vsync=16.67
+PAWNCH_CLASH region=clash frames=113 dropped=1 worst_gap=26.3ms cadence=16.79   (x7 rows)
+clash regions in this window: 7, of which 5 dropped at least one vsync, worst gap 28.7 ms
+```
+
+Five of seven — the same ~1-per-clash the driver tap has been paying for all along, unchanged by
+the new threshold, which is the regression check that mattered.
+
+**One honest cost of the median.** The cadence wobbles across windows — 16.63 to 17.03 in the runs
+above — so the threshold wobbles with it, 24.9 to 25.5 ms. A gap that lands within about 2% of
+25 ms can therefore fall either side depending on which window it is in. That is a real
+sensitivity and it is worth stating, but the alternative it replaces was wrong by a factor of two
+whenever the panel was at 120, and the gaps this project actually cares about are 26-108 ms, not
+25.0.
+
+### What did not get done, and why
+
+- **The Day-8 juice debt is not taken.** The full 4–6 SFX set, haptic tuning on the device and the
+  skip-clashes toggle are feature work; the owner spent the day's second half on the vsync instead.
+  Named, undone, not hidden.
+- **`knight-takes-pawn-clash` Block C** — the two 15 s recordings, the Ani Chess 3D comparison and the
+  dated verdict — is still Day 10's, untouched.
+- **The open debt from Day 7 and 8** — `duel-panel-and-rig`'s detached-skull defect, the
+  `tools/import_craftpix.py` crest divergence, the legibility test, the duel panel's unreturned draw
+  calls — was deliberately not chased. Neither change is archived; both still carry it.
+
+Suite before the day's work: **244 checks, 0 failed, 54.7 s**; after the `frame_probe.gd` fix
+above, **244 checks, 0 failed, 62.4 s**. The only app-code change today is that fix, and it is in a
+diagnostic node no gameplay path touches.
+
+Three stale facts were corrected while the day's edits were open, all of them the same defect as
+`openspec/config.yaml`'s: `CLAUDE.md`'s Stack section and `docs/mvp-plan.md`'s Day 10 README task
+both still said "portrait only", four days after the game turned landscape, and the comment above
+`CLASH_BY_TYPE` in `scripts/duel_panel.gd` still said the queen lands on the strike "until Day 8
+gives the queen a clash of its own" — false as of today's cut, and sitting exactly where a reader
+looking for the missing queen clash arrives.
+
+No ADR was edited today.
+
 ## Ideas for later
+
+- **The queen's own bespoke clash.** Cut on 2026-08-23 as cut order step 1, and parked here so
+  the cut is a decision with a home rather than a deletion. The queen is the *most frequent*
+  attacker a real game produces — 7 of the 24 captures in the Day-6 playtest — so she is the one
+  piece where the shared strike is seen most often, which is the argument for building it and
+  also the argument against needing to: whatever she gets is what a child sees most, and the
+  strike is already a first-class fight rather than a placeholder. Cost is one half-day at the
+  Day-6/Day-7 rate for a bespoke clash — a beat schedule, its tuned constants re-derived against
+  `tools/measure_stage_bounds.gd`, one entry in `CLASH_BY_TYPE`, and the length check that keeps
+  the three clashes readably distinct (1.90 / 1.80 / 1.70 s leaves no obvious gap, so a fourth
+  wants a deliberate answer for where its length sits). It was not taken on Day 9 because Day 9
+  is the feature freeze and the day's one job was turning quoted numbers into defensible ones;
+  starting a fourth clash on the last feature day would have produced the mediocre-but-complete
+  outcome the plan's cut order exists to refuse.
 
 - **Regenerate the head per piece type, instead of one shared head wearing a swapped crest.** This
   is the intended replacement for the withdrawn tile glyph and the answer to the board having one

@@ -111,7 +111,7 @@ if that decision stands.
 | M2 | Greedy-capture bot, single difficulty — deliberately not Stockfish: a capture-hungry bot generates more clashes, which is the thing under test, and it costs a fifth as much | 1 |
 | M3 | Duel cutaway system: freeze board → transition in → play clash → resolve capture → transition out → resume, with skip-on-tap and a guaranteed fallback if an animation is missing | 2 |
 | M4 | Character art at the **Plants vs Zombies bar** — chunky readable silhouettes, high contrast, comedic not violent: 6 piece types, one style, idle + hit + defeat states, palette swap for the opposing side, one board. Cutout/bone rigging, not frame-by-frame | 3 |
-| M5 | Clash animations with **PvZ-grade juice** — exaggerated squash-and-stretch, bouncy secondary motion, readable-at-a-glance impact: 3 bespoke (pawn, knight, queen) + 1 shared generic strike covering rook/bishop/king | 4 |
+| M5 | Clash animations with **PvZ-grade juice** — exaggerated squash-and-stretch, bouncy secondary motion, readable-at-a-glance impact: 2 bespoke (pawn, knight) + 1 shared strike covering bishop, rook, queen and king. **Cut order step 1 fired; declared 2026-08-23.** The queen shares the strike by decision, and the strike was built as a fight rather than as a placeholder | 4 |
 | M6 | Impact juice: hitstop, screen shake, impact VFX, 4–6 SFX, haptics | 2 |
 
 **15/24 = 62%. That is over the 60% line**, and M5 cannot be split further without falling
@@ -120,7 +120,9 @@ calm.
 
 **Cut order (execute in this sequence, do not improvise):**
 
-1. **M5 drops to 2 bespoke** (pawn + knight); the queen falls back to the generic strike. −1 half-day.
+1. **M5 drops to 2 bespoke** (pawn + knight); the queen falls back to the shared strike. −1 half-day.
+   **FIRED — declared 2026-08-23.** The code has been in this state since Day 7; the decision was
+   written down on Day 9, the feature-freeze day, rather than on the day the code arrived at it.
 2. **M1 drops the edge cases** — no castling, no en passant, auto-promote to queen. −0.5.
 3. **M2 drops to pass-and-play** on one device, bot removed entirely. −1. (Costs metric 3, so this is late.)
 4. **M4 drops to 4 piece types with real art**; rook and bishop use recoloured pawn silhouettes. −1.

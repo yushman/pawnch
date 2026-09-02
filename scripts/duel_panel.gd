@@ -122,8 +122,9 @@ const CLASH_BEATS := {
 #
 # Two types have a bespoke clash. Three more are named onto the shared strike,
 # and the queen is deliberately left out of the table so that the fallback path
-# is a path something real takes rather than dead code -- it lands on the strike
-# anyway, until Day 8 gives the queen a clash of its own. Adding an entry here
+# is a path something real takes rather than dead code -- she lands on the strike
+# and stays there. Cut order step 1 fired on 2026-08-23: the queen gets no clash
+# of her own, which is a decision and not an unfinished row. Adding an entry here
 # must never be able to weaken the guarantee for the types that still have none,
 # which is why clash_for() defaults rather than indexing.
 const PIECE_TYPES := ["pawn", "knight", "bishop", "rook", "queen", "king"]

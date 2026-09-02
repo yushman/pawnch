@@ -3,7 +3,7 @@ schema: pawnch
 context: |
   pawnch is an Android chess game for kids 6-12 where every capture cuts away to a
   full-screen character duel. Godot 4.3+ / GDScript, Compatibility renderer, Android
-  only, portrait only. One developer, two-week sprint.
+  only, landscape only. One developer, two-week sprint.
 
   Read docs/product-analysis.md (scope and non-goals), docs/system-analysis.md
   (requirements and failure modes) and docs/adr/ (why things are the way they are)

@@ -5,13 +5,14 @@ impact, screen shake, VFX, sound and haptics — instead of a piece silently van
 
 [Русская версия](README.ru.md)
 
-> **Status: in development, day 6 of 12.** There is no installable build yet, but the game
-> runs on the target phone: a full game can be played to checkmate, every capture cuts to the
-> duel, and the numbers below are measured on that device rather than estimated. There is now
-> an opponent to play against, and every piece type now resolves to a clash: the knight charges,
-> the pawn pounces, and bishop, rook and king share an overhead strike, with the queen on the
-> strike too until it gets one of its own. What is missing is the queen's own clash and the sound
-> and polish pass. Neither animation has yet been judged against the app it has to beat.
+> **Status: in development, day 9 of 12 — feature freeze.** There is no installable build yet,
+> but the game runs on the target phone: a full game was played to checkmate on it on
+> 2026-08-23, every capture cuts to the duel, and the numbers below are measured on that device
+> rather than estimated. There is an opponent to play against, and every piece type resolves to
+> a clash: the knight charges, the pawn pounces, and bishop, rook, queen and king share an
+> overhead strike. **The queen shares it by decision, not because it is unfinished** — see below.
+> What is missing is the sound and polish pass. Neither bespoke animation has yet been judged
+> against the app it has to beat.
 
 ## What it is
 
@@ -128,8 +129,13 @@ alone does not tell the six silhouettes apart.
 There are three clashes now. The knight charges across the ground and the pawn crouches and
 leaps on its victim from above, each with a clash of its own. Bishop, rook and king share an
 overhead strike by name — the attacker barely crosses the floor before the smash lands, and the
-defender is knocked backwards, which no other clash does — and the queen falls back to the
-strike until it gets one of its own. Three distinct lengths, so no two read as one: the charge
+defender is knocked backwards, which no other clash does. **The queen is on that shared strike
+by decision, not by omission**: a third bespoke clash was the first thing this sprint's cut order
+gave up, and the cut was declared on 2026-08-23. It is worth saying out loud rather than leaving
+a reader to infer it from a missing table row, because the queen is the *most frequent* attacker
+a real game produces — 7 of the 24 captures in the Day-6 playtest were hers. What makes the cut
+defensible is that the strike was built as a fight in its own right rather than as a placeholder
+that merely stops captures being silent. Three distinct lengths, so no two read as one: the charge
 1.90 s, the pounce 1.80 s, the strike 1.70 s, impact 0.522–0.538 s measured on the device. **No
 capture is ever silent.**
 
@@ -151,47 +157,58 @@ there is no save or resume, and it is Android landscape only.
 
 The animation is the product, so the frame budget is the spec, not a nice-to-have:
 
-| | Target | Measured |
-|---|---|---|
-| Sustained fps through the clash | ≥50 | 59.2–59.6 |
-| Capture tap → first clash frame | <200 ms | 4–32 ms |
-| Total clash duration | ≤2.0 s | 1.70–1.93 s (three distinct lengths, see below) |
-| Opponent's reply | <1 s | 39–44 ms + a deliberate 350 ms pause |
-| Cold start → interactive board | ≤3.0 s | 2.43–2.56 s |
-| Draw calls, board + clash on screen | ~60 | 33 |
-| Draw calls, board with marks and both margins | ~60 | 4 |
-| Draw calls, the same board with a speech bubble over each commander | ~60 | 10 |
+| | Target | Measured | Over |
+|---|---|---|---|
+| Sustained fps through the clash | ≥50 | 58.9–59.9 | 253 reporting windows |
+| Capture tap → first clash frame | <200 ms | 7–33 ms | 26 clashes |
+| Impact cue | ≤0.6 s | 0.522–0.565 s | 26 clashes |
+| Total clash duration | ≤2.0 s | 1.71–1.95 s (three distinct lengths, see below) | 26 clashes |
+| Opponent's reply | <1 s | 25–52 ms + a deliberate 350 ms pause | one full game |
+| Cold start → interactive board | ≤3.0 s | 2.54–2.97 s | 3 cold starts |
+| Draw calls, board + clash on screen | ~60 | 29 | |
+| Draw calls, board with both margins, with and without legal-move marks | ~60 | 7 | |
+| Draw calls, the same board with a speech bubble over each commander | ~60 | 10 | |
 
-Measured 2026-08-19 over four captures, an idle baseline and a cold start, on top of the
-2026-08-18 pass that produced the cold-start figure; the draw-call line for the board was
-re-measured 2026-08-20, after the turn card was deleted and the commanders, the pedestal and the
-two controls took its place. The total-clash-duration and board-plus-clash draw-call lines were
-also re-measured 2026-08-20, the same day the board turned landscape and the strike clash and its
-per-type weapons landed; the earlier figures did not survive either change. The bubble line is
-from the same render harness on the same day and
-is a cost per bubble, not per line: a rounded panel, its tail and one run of glyphs, three draw
-calls each. Frame times come from inside the engine,
-never from `dumpsys gfxinfo`
+Every figure above was re-measured on 2026-08-23, in one session, on the device named below: three
+cold starts, one full game played to checkmate, and 26 clashes with an idle baseline either side of
+them. **Each row says what it is measured over, because a clash figure without a denominator is not
+a result.** The clash lengths come from `PAWNCH_CUE` on the device rather than from the authored
+schedule, and `t=0` is the tap that committed the capture, not the panel opening. Frame times come
+from inside the engine, never from `dumpsys gfxinfo`
 ([ADR-0006](docs/adr/0006-in-engine-frame-timing-instead-of-dumpsys.md)).
 
-**Every clash used to drop exactly one vsync. It no longer does, and the reason is not known.**
-Every session through Day 8 measured one dropped frame per clash — a 29.5 ms stall for the
-knight's charge, 53–58 ms for the pawn's pounce, against a 20 ms budget — and it reproduced warm
-as well as cold, so it read as a real cost rather than a first-use one. The last
-`tools/frametime.sh --cold` run, taken after the board turned landscape and the weapons landed on
-the pieces, measured **dropped=0** on the same clash, cold and warm. Nothing done since was aimed
-at that stall, so this is not presented as a fix — it is an unexplained change, and it could come
-back as easily as it went away.
+**The dropped vsync this project has quoted since Day 4 belongs to the ruler, not to the clash.**
+Over 26 clashes in one session the clash regions dropped 1.27 vsyncs each and 20 of the 26 dropped
+at least one — so the single `dropped=0` run recorded on Day 8 was a sample of one, not a change.
+But every one of those clashes is started by an `adb shell input tap`, and that tap spawns a Dalvik
+VM on the phone. Four 60 s runs in the same session, 21 events each: nothing at all dropped 4;
+`adb shell true` twenty-one times dropped 3; twenty-one taps landing on a dead corner where nothing
+happens dropped **19**; the same twenty-one taps each starting a full clash dropped **22**. The step
+is between the shell round-trip and the tap, not between the tap and the clash. The clash adds three
+dropped frames over twenty-one clashes, against a floor of four — inside the noise.
+
+This cannot be subtracted and the remainder quoted, because there is no scripted way to start a
+clash that does not go through `input`: raw `sendevent` to the touchscreen is refused by SELinux on
+this phone, and the only tap-free trigger — the bot's own capture — follows the driver's tap by well
+under a second. So the honest statement is the whole of it: **1.27 drops per clash over 26, against
+0.90 per tap over 21 taps that started no clash, against 0.16 expected from the same session's idle
+rate.** A finger on the glass pays none of it. What the clash does own is the size of the worst gap:
+68.5 ms inside a clash region and 108.2 ms in a window containing one, against 32.0 ms for taps alone
+and 26.6 ms at idle.
 
 The cold-start figure is launch to the first frame that draws the board *and* accepts a tap
-(`PAWNCH_READY` in logcat); the activity's own first frame comes 917–995 ms after launch. The
-board's marks cost nothing — they are textured quads from the piece atlas and batch with the
-figures — and neither do the margins: the commanders, the graveyards, the pool of light under the
-active commander and the two controls are all regions on that same page, so a full board with both
-margins is 64 square fills and one unbroken run of quads. It was 8–10 until Day 9, and the
-difference was the turn card, which drew its own panel and its own figure. The duel panel still
-does not give its ~25 back when it closes, which is why a board measured straight after a clash
-reports 29.
+(`PAWNCH_READY` in logcat), measured from the launch intent; the activity's own first frame comes
+988–1072 ms after it. **2.97 s of a 3.0 s budget is 30 ms of headroom**, and nothing done since the
+figure was last taken was aimed at cold start — it has drifted, and it is one bad launch from
+failing.
+
+The board's marks cost nothing — they are textured quads from the piece atlas and batch with the
+figures, and the same board reads 7 before and after a piece is selected. Neither do the margins:
+the commanders, the graveyards, the pool of light under the active commander and the two controls
+are all regions on that same page, so a full board with both margins is 64 square fills and one
+unbroken run of quads. That figure is 7 on the phone; the 4 quoted here until 2026-08-23 came from a
+render harness rather than from the device. The duel panel still does not give its ~25 back when it
+closes, which is why a board measured straight after a clash reports 29 and stays there.
 
 Measured on: **Xiaomi Redmi Note 13 4G** (`2312FPCA6G`), MediaTek Helio G99, Mali-G57 MC2,
 2400x1080 landscape, Android 16 (SDK 36), arm64-v8a. Its GPU is a step above the Snapdragon 680 /
@@ -209,7 +226,7 @@ tools/build.sh              # headless export -> build/pawnch.apk
 tools/deploy.sh             # build, install and launch on the attached device
 tools/check_no_internet.sh  # fails if the APK declares android.permission.INTERNET
 tools/frametime.sh --cold   # cold-start ms, worst frame ms, frames over 20 ms
-godot --headless --script tests/run_headless.gd   # the whole test suite, ~45 s
+godot --headless --script tests/run_headless.gd   # the whole test suite, 244 checks, ~55 s
 ```
 
 `tests/run_headless.gd` is a small runner that decides the exit code — 2 if the suite did not
