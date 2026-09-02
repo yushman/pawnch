@@ -3479,7 +3479,7 @@ looking for the missing queen clash arrives.
 
 No ADR was edited today.
 
-## 2026-09-02 — Day 10: a signed build, a licence, and the answer still missing
+## 2026-09-02 — Day 10: a signed build, a gate that could never fail, and the answer still missing
 
 Ten calendar days passed between Day 9 and today with no work on this. The sprint's day numbers
 and the calendar have come apart, and from here everything is dated by the calendar. This is
@@ -3698,7 +3698,7 @@ without docs/media: 54651776 bytes, 251 files
 Byte-identical size and an identical entry list, and `unzip -l | grep -ci docs/` is 0. The
 `.gdignore` is doing its job.
 
-### CI now builds the APK — and this was **reasoned about, not exercised**
+### CI now builds the APK — and the gate it runs could never fail
 
 `.github/workflows/suite.yml` gains an `apk` job: Godot 4.7.1, the Android export templates, the
 runner's preinstalled SDK at `/usr/local/lib/android/sdk`, then `tools/build.sh` and
@@ -3710,10 +3710,47 @@ still does not belong there, but the SDK and the export templates install fine a
 says why. A clean checkout every run is also the fresh-clone build check the plan lists
 separately; they are one thing, not two.
 
-**It has never run.** This session does not commit and does not push, so no workflow run exists,
-and the second Block C task — deliberately break the export config, confirm the run goes red,
-revert — could not be attempted at all. That gap sits on top of an existing one already on the
-record: the `suite` job has never gone red on a runner either. Both Block C tasks stay unchecked.
+**It has now run, both ways, and the red run is the important part of this whole day.**
+
+Green first. Commit `39c00f1`, run `33637835110`: `apk` in 1m02s, `suite` in 2m09s. A job that is
+supposed to fetch 1.3 GB of export templates and finishes in 62 seconds deserves to be read rather
+than ticked, so it was: `Cache not found for input keys: godot-android-templates-4.7.1` — the
+`.tpz` really was fetched — `built build/pawnch.apk (57M)`, a 58 574 421-byte artifact uploaded,
+and a 445 MB templates cache saved so later runs skip the download. The `suite` job reported
+`perft 1..4 = 20 400 8902 197281` and `checks=244 passed=244 failed=0` **on a runner, for the
+first time in this project's life** — that gap, on the record since Day 7, is closed.
+
+Then the red run, on a throwaway branch so `main` stays clean. **It passed. That was the finding.**
+
+The first attempt set `permissions/custom_permissions=PackedStringArray("android.permission.INTERNET")`
+and CI went green. `custom_permissions` is for permissions Godot has no switch of its own for, and
+it silently drops a standard one, so the APK was clean and the test was invalid. Switching to
+`permissions/internet=true` put the permission in for real — confirmed directly,
+`aapt2 dump permissions` printing `uses-permission: name='android.permission.INTERNET'` — and
+**`tools/check_no_internet.sh` still said `PASS (no permissions declared at all)`.**
+
+One line:
+
+    PERMS="$("$AAPT" dump permissions "$APK" | grep "^permission:" || true)"
+
+`aapt2` prints permissions an app *defines* as `permission:` and permissions it *requests* as
+`uses-permission:`. The grep matches the first and never the second. `PERMS` has therefore been
+empty for every APK ever built here, the "no permissions declared at all" branch has always won,
+and **the gate on the one product constraint this project treats as absolute — zero network,
+`android.permission.INTERNET` must never appear — has passed unconditionally since the day it was
+written.** Its answer happened to be correct every time, because the APK really is clean. Its
+mechanism could not have told anyone otherwise.
+
+Fixed: match `^(uses-)?permission`, and fail rather than pass when `aapt2` produces no `package:`
+line at all, because an empty dump means the tool failed and not that the APK is innocent. Proved
+in both directions locally — `internet=true` gives `FAIL: the APK declares
+android.permission.INTERNET` and exit 1, the clean preset gives PASS — and then on the runner:
+run `33638995178`, `apk` red in 41s, `Process completed with exit code 1`. Branch deleted.
+
+So both Block C tasks close, and the day's real output is not the signed APK. It is that a check
+which cannot fail was found by trying to make it fail. That is the sixth defect in a fortnight that
+was true in an artifact and invisible to a green tick, and the first one where the green tick was
+the artifact.
 
 What *was* verified without pushing, because it is the one step with a guess in it: the
 1.28 GB `Godot_v4.7.1-stable_export_templates.tpz` was range-requested for its last 300 KB and its
@@ -3749,8 +3786,11 @@ documents.
 ### What did not get done, and why
 
 - **The verdict.** Owner's, unwritten, named at the top of this entry rather than buried here.
-- **CI, actually running.** Written and locally cross-checked, never executed. Say so.
-- **The deliberate-red-build test.** Impossible without a push.
+- ~~**CI, actually running.**~~ Done after this entry was first written: pushed, green on the
+  first run, and the suite went green on a runner for the first time.
+- ~~**The deliberate-red-build test.**~~ Done, on a throwaway branch, and it found the dead
+  `check_no_internet.sh` grep described above. The one thing on this list that turned into the
+  day's most useful hour.
 - **The old debt, untouched by decision**: the detached-skull defect, the
   `tools/import_craftpix.py` crest divergence, the legibility test, the duel panel's unreturned
   draw calls, and the Day-8 juice debt (the full SFX set, haptic tuning, the skip toggle).

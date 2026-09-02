@@ -88,12 +88,25 @@ recorded in `openspec/changes/knight-takes-pawn-clash/tasks.md`.
 
 ## Block C — CI builds the APK
 
-- [ ] **The workflow builds the APK on push and runs the permissions gate on it.** Android SDK plus
+- [x] **The workflow builds the APK on push and runs the permissions gate on it.** Android SDK plus
       Godot export templates on the runner; the existing suite job stays exactly as it is. Update
       the comment at the top of the workflow that currently says an APK build does not belong here
       — it argues from the device work, which still does not belong here.
       *Verify:* a push produces a workflow run in which the APK build step succeeds and
       `tools/check_no_internet.sh` passes; the suite job's result is unchanged.
+      **Done 2026-09-02, green on the first run.** Commit `39c00f1`, run
+      [33637835110](https://github.com/yushman/pawnch/actions/runs/33637835110): `apk` green in
+      1m02s, `suite` green in 2m09s. Checked against the log rather than the tick, because a job
+      that is supposed to download 1.3 GB of export templates and finishes in 62 seconds deserves
+      suspicion: `Cache not found for input keys: godot-android-templates-4.7.1` (so the `.tpz`
+      really was fetched), `built build/pawnch.apk (57M)`, and a 58 574 421-byte artifact uploaded.
+      The templates cache was saved at 445 MB, so later runs skip the download. The suite job is
+      unchanged and reported `perft 1..4 = 20 400 8902 197281` and
+      `checks=244 passed=244 failed=0` on the runner — **the first time the suite has been proven
+      green on a runner rather than only locally.** One annotation, not a failure:
+      `actions/cache@v4`, `actions/checkout@v4` and `actions/upload-artifact@v4` target Node 20,
+      which the runner now forces onto Node 24. Note that this run's
+      `no-internet check: PASS` meant nothing at the time — see the task below.
       **Written 2026-09-02, never run — left unchecked.** The `apk` job exists in
       `.github/workflows/suite.yml` and the `suite` job's diff is exactly the seven replaced
       header lines. This session does not push, so no workflow run exists and the verify line
@@ -103,10 +116,24 @@ recorded in `openspec/changes/knight-takes-pawn-clash/tasks.md`.
       binary, so a runner with no editor settings finds the SDK and creates its own debug
       keystore; and `tools/build.sh` now looks for export templates in the Linux location too.
 
-- [ ] **A build failure fails the run visibly**, the same way the suite's does.
+- [x] **A build failure fails the run visibly**, the same way the suite's does.
       *Verify:* a deliberately broken export config gives a red run naming the failure, then is
       reverted. Say in the devlog whether this was actually exercised or only reasoned about — the
       suite job has never gone red on a runner and that gap is already on the record.
+      **Exercised, on a throwaway branch so `main` stays clean, and it found a real defect on the
+      way.** Run [33638995178](https://github.com/yushman/pawnch/actions/runs/33638995178):
+      `apk` red in 41s, `FAIL: the APK declares android.permission.INTERNET` /
+      `uses-permission: name='android.permission.INTERNET'` / `Process completed with exit code 1`.
+      The branch `ci-red-check` was deleted afterwards.
+
+      **The first attempt at this test passed, and that was the finding.** Setting
+      `permissions/custom_permissions=PackedStringArray("android.permission.INTERNET")` produced a
+      green run — `custom_permissions` is for permissions Godot has no switch of its own for, and
+      it drops a standard one. Switching to `permissions/internet=true` put the permission into the
+      APK for real, and the gate **still** passed. See the devlog: `tools/check_no_internet.sh`
+      grepped `^permission:`, which never matches the `uses-permission:` lines aapt2 prints for
+      requested permissions, so it had passed unconditionally on every APK since it was written.
+      Fixed and proved in both directions locally before the red run above.
 
 ## Block D — the two READMEs
 
