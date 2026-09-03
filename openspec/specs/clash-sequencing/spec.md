@@ -92,7 +92,8 @@ both directions MUST work in this change.
 
 - **WHEN** a white piece captures a black one
 - **THEN** the left figure attacks, the right figure is defeated, and the defeat is the one
-  authored for black — its head comes off and flies out of frame carrying its crest
+  authored for black — its head comes off and tumbles away carrying its crest, and it has faded
+  out before it reaches an edge of the panel rather than being cut in half by one
 
 #### Scenario: Black captures
 

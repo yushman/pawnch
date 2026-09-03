@@ -3900,7 +3900,118 @@ is three full games in one sitting with the skips counted per game — the quest
 the clash survives repetition. That measurement has not been made, and losing is not evidence
 about it either way.
 
+## 2026-09-03 — Day 11b: the head that fanned itself apart
+
+The last open item on `openspec/changes/duel-panel-and-rig/tasks.md` — the one visible in
+`docs/media/day10-headless-torso-floating-crest.png`, and in the recording the kill checkpoint was
+answered over. Three symptoms were reported together on Day 5. Two were real, one was not, and the
+first thing this pass produced was the instrument that could tell them apart.
+
+**The instrument.** `tools/measure_stage_bounds.gd` deliberately skipped the detach duplicates:
+the flying skull is *meant* to leave frame, so counting it against the panel edge would report a
+failure forever. That is the right call for the figure rows and it is why nothing ever measured
+this. A `--detach` mode now asks the other question — *with what alpha does it cross?* — and
+reports three numbers per clash with a black defender: `grow` (the group's box over its box at
+spawn), `spread` (how far the three parts drift apart, in panel px) and `edge_a` (the alpha it is
+carrying the first frame it touches a panel edge). Only `edge_a` has a pass condition, and it is
+zero.
+
+```
+godot --headless --script tools/measure_stage_bounds.gd -- --detach
+```
+
+Before:
+
+```
+pounce-white  detach  BAD  grow=2.73 spread=670.6px edge_t=0.678 edge_a=1.00
+charge-white  detach  BAD  grow=2.75 spread=665.3px edge_t=0.719 edge_a=1.00
+strike-white  detach  BAD  grow=2.74 spread=665.1px edge_t=0.659 edge_a=1.00
+```
+
+**The crest orphaning was a pivot bug, and it was the whole of the "reads larger" symptom too.**
+`Head`, `Face` and `Crest` were duplicated as three siblings under the rig, and `detach_head()`
+tweened `rotation` by +5.5 rad on each of them separately. These sprites are `centered = false`:
+each one's origin is a corner of its own texture and none of them is the skull's centre, so each
+spun about a different point and they fanned apart by **670 px** over the flight. That is the
+crest ending up beside the valkyrie. It is also 2.73x of `grow` — the *group's* box inflating
+because its parts were leaving each other, not because the skull was growing. Nothing in the
+flight ever touched `scale`, and the duplicates take the original's global transform at spawn, so
+the skull could not have grown; the suite now asserts that directly and reads 0.0000 across the
+whole flight. What is left of the symptom is real and is not this defect: the torso collapses
+under the pack's own `Dying` while the skull holds its impact-moment size, so the skull reads
+large against a shrinking reference. Not corrected — that is the pack's animation.
+
+The fix is one container `Node2D` holding all three duplicates, pivoted on the skull's own centre,
+with position, rotation and the fade tweened on the container so the three can only move together.
+The originals still may not be reparented — `Dying` keys `%Head` by NodePath relative to the rig
+root — and they are still merely hidden.
+
+**The clipping needed the flight taken off the body, not just retimed.** The arithmetic that
+mattered was not the one in the task. The black rig stands at x=893 in a 1240-wide panel and the
+skull's own box already reaches x=1114 standing still: there are **126 px** of panel to the right
+of a severed head and **370 px** above it. And the container was a child of the rig, so
+`STRIKE_KNOCKBACK` (133 px) and `STRIKE_KNOCK_TILT` (0.22 rad about a root 348 px below the skull)
+dragged it about **210 px** downrange — more than the 126 it had. On the strike, no flight distance
+and no fade timing could have kept it in frame; the head crossed the edge 0.14 s after impact,
+inside the hitstop, before a fade could have run at all.
+
+So the container hangs off the **stage** now, not off the rig, which is also the more honest read:
+a severed head does not get carried by what happens to the body afterwards. With that off, the
+flight is aimed where the room is — **up**, `(-0.18, -1.0)` at 620 rig units, instead of almost
+flat and downrange at 900 — the easing flips from `EASE_IN` to `EASE_OUT` now that a fast start is
+no longer a way to leave the frame in two frames, and the fade runs 0.45 to 0.85 of the beat
+instead of 0.65 to 1.00. After:
+
+```
+pounce-white  detach  OK   grow=1.10 spread=0.8px edge_t=-1.000 gone_t=1.362  lit r=1215.0 t= 66.8
+charge-white  detach  OK   grow=1.10 spread=1.1px edge_t=-1.000 gone_t=1.424  lit r=1217.2 t= 69.8
+strike-white  detach  OK   grow=1.10 spread=0.7px edge_t=-1.000 gone_t=1.414  lit r=1215.0 t= 69.6
+```
+
+`edge_t=-1` means the skull never touched a panel edge at any alpha, at all, on any of the three.
+Worst right reach 1217 px of 1240 and worst top 63 px of 0; the residual 1.10 of `grow` is an
+axis-aligned box around a rotating rigid object and nothing else. `gone_t` lands on `exit` (1.40),
+so the wipe never takes a lit frame of it. The figure rows are unchanged and still
+`PAWNCH_BOUNDS OK clipped_clashes=0`; `CLASH_BEATS` was not touched and `impact` is still 0.522.
+
+**On device**, `screenrecord --size 2400x1080` of the debug duel split with `ffmpeg -vf fps=30`:
+the skull comes off, tumbles up and to the right with the crest on it, and fades out with clear
+panel on every side. `docs/media/day11b-detached-head-fixed.png` is the frame that answers
+`docs/media/day10-headless-torso-floating-crest.png` — same moment of the same clash, the crest on
+the skull instead of hanging in the air beside the valkyrie, and nothing touching an edge.
+
+**Three new checks, and why they are in the suite rather than in the tool.** This defect lived for
+eighteen days in the one asset the sprint exists to produce, in front of a green suite, because
+nothing in `tests/suite.gd` had ever looked at the duplicates. Two thirds of the measurement need
+no viewport: *the three parts hold their arrangement to the pixel across the whole flight*
+(0.00 px) and *nothing on the way out is resized* (0.0000). Those are now checks, written against
+the parts' global transforms rather than against the container, so a future rewrite that keeps the
+node and loses the rigidity still fails them. The third — where the flight is against the panel
+edges, and with what alpha — needs the mask geometry and stays in the tool. 250 checks, floor
+raised, ~56 s.
+
+The skip sweep's debris counter moved with the container: it counted rig children by name, and the
+container is not one any more, so `CharacterRig.debris_count()` answers instead. A child count
+would have gone quietly blind on the same commit that fixed the bug, which is the exact failure
+mode this entry is about.
+
 ## Ideas for later
+
+- **A real arc for the severed head, instead of a tumble that coasts.** Decided on 2026-09-03 to
+  leave the defeat beat as it now is: the skull rises decelerating, stops in mid-air and fades
+  there. It is correct, it is in frame, and the crest stays on it — but the motion has no second
+  half. The version that would read better is two chained tweens rather than one: rise
+  decelerating, then fall accelerating past the body while the fade runs on the way down, which is
+  also what a thrown object does. There is room for it — the fixed flight uses 322 px of the 370 px
+  of panel above the skull and never touches an edge (`tools/measure_stage_bounds.gd --detach`).
+  Not taken because the beat was judged good enough and this is taste rather than a defect.
+- **The headless torso, which is the half of the Day-5 complaint that was not fixed.** That
+  complaint had two parts — the crest orphaning itself, and the defeated skeleton standing as a
+  headless torso for the rest of the beat. The first is fixed; the second is inherent to the beat,
+  because the body goes on playing the pack's own `Dying` after its head has left. The cheap
+  versions are to fade the torso out behind the skull, or to shorten its `Dying` so the panel wipes
+  before the headless pose is on screen long. Both are changes to what the beat *is*, which is why
+  neither was taken on a day whose brief was to fix a defect.
 
 - **A gentler opponent, for the end of the age range that cannot beat this one.** Day 11's
   playtest: a six-year-old does not win. The bot is capture-greedy by design

@@ -882,7 +882,7 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
 
 ## Open debt found later, from outside this change
 
-- [ ] **The detached head reads wrong, and the crest orphans itself. Found 2026-08-18 (Day 5),
+- [x] **The detached head reads wrong, and the crest orphans itself. Found 2026-08-18 (Day 5),
       deferred to Day 8 by decision.** Pulled frames of the very first duel of a fresh session
       show three things at once: the detached skull reads noticeably **larger** than the head it
       replaced, it is **clipped by the panel's right edge** on the way out, and the duplicated
@@ -902,3 +902,38 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       *Verify:* on device, a `screenrecord` of one capture split with `ffmpeg -vf fps=30`; across
       the flight the skull is the same apparent size as the head it replaced, the crest stays
       attached to it, and neither leaves frame through a clipped edge before the flight is over.
+      > **2026-09-03 — fixed.** Two of the three symptoms were real; the third was not, and the
+      > measurement that settles all three is a new `--detach` mode on
+      > `tools/measure_stage_bounds.gd`, which reports the flying head's own alpha box against the
+      > panel instead of skipping it.
+      >
+      > *The crest orphaning was a pivot bug.* `Head`, `Face` and `Crest` were duplicated as three
+      > siblings under the rig and each had `rotation` tweened by +5.5 rad — about its own origin,
+      > which for these sprites is a texture corner and for none of them the skull's centre. They
+      > fanned apart by **670 px** over the flight. They now hang under one container pivoted on
+      > the skull, with position, rotation and the fade all tweened on the container: drift is
+      > **≤ 1.3 px**, which is float noise.
+      >
+      > *The skull never grew.* Nothing in the flight touches scale and the duplicates take the
+      > original's global transform, so it could not; the suite now asserts that directly
+      > (0.0000 change across the flight). What inflated the *group's* box 2.73x was the fan-out.
+      > What is left is real but is not this defect: the torso collapses under the pack's `Dying`
+      > while the skull holds its impact-moment size, so the skull reads large against a shrinking
+      > reference. That is the pack's animation, and it is not being corrected here.
+      >
+      > *The clipping needed the flight decoupled from the body, not just retimed.* The container
+      > is parented to the stage now, not to the rig: `STRIKE_KNOCKBACK` + `STRIKE_KNOCK_TILT`
+      > dragged the severed head about 210 px downrange, more than the 126 px of clear panel it
+      > has, so on the strike no distance and no fade timing could have kept it in frame. With it
+      > decoupled, the flight is aimed where the room is — up (`(-0.18, -1.0)`, 620 rig units)
+      > rather than downrange — and the fade runs 0.45 to 0.85 of it. Measured over all three
+      > clashes with a black defender: the skull now never touches a panel edge at any alpha
+      > (`edge_t=-1`), worst right reach 1217 px of 1240 and worst top 63 px of 0, and it is fully
+      > gone at t=1.36–1.42 s, i.e. by `exit`, so the wipe never takes a lit frame. Before:
+      > it crossed the edge at t=0.66–0.72 s at **alpha 1.00** on every clash.
+      >
+      > Evidence: `godot --headless --script tools/measure_stage_bounds.gd -- --detach` before and
+      > after; figure rows unchanged and still `PAWNCH_BOUNDS OK clipped_clashes=0`; a device
+      > `screenrecord --size 2400x1080` of the debug duel split with `ffmpeg -vf fps=30`, in which
+      > the skull tumbles up with the crest on it and fades inside the frame; and three new suite
+      > checks (250 now, floor raised) that pin rigidity and the absence of any resize.

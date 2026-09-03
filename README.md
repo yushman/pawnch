@@ -257,7 +257,7 @@ tools/build.sh --release    # signed release export -> build/pawnch-release.apk
 tools/deploy.sh             # build, install and launch the debug build on the attached device
 tools/check_no_internet.sh  # fails if the APK declares android.permission.INTERNET
 tools/frametime.sh --cold   # cold-start ms, worst frame ms, frames over 20 ms
-godot --headless --script tests/run_headless.gd   # the whole test suite, 244 checks, ~55 s
+godot --headless --script tests/run_headless.gd   # the whole test suite, 250 checks, ~56 s
 ```
 
 Every push builds the debug APK on a GitHub Actions runner and runs the permissions gate on it

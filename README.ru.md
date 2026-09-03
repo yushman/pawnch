@@ -257,7 +257,7 @@ tools/build.sh --release    # подписанный релизный экспо
 tools/deploy.sh             # сборка, установка и запуск debug-сборки на подключённом устройстве
 tools/check_no_internet.sh  # падает, если в APK есть android.permission.INTERNET
 tools/frametime.sh --cold   # холодный старт, мс; худший кадр, мс; кадры дольше 20 мс
-godot --headless --script tests/run_headless.gd   # весь набор тестов, 244 проверки, ~55 с
+godot --headless --script tests/run_headless.gd   # весь набор тестов, 250 проверок, ~56 с
 ```
 
 На каждый push GitHub Actions собирает debug APK на раннере и прогоняет по нему проверку

@@ -50,13 +50,34 @@ extends SceneTree
 # old staging that way put the valkyrie's defeat at 572 px instead of its real
 # 483, which is a different answer to "how much smaller does this have to get".
 #
-# Two things are deliberately not counted. Detach duplicates: the flying skull is
-# separate Day 8 debt, and it is *meant* to leave frame -- counting it would also
-# report the torso's crest twice. SlashFX: a swing smear is not a figure, and a
-# smear caught by the edge is not the failure this measures. Flip the `false` in
-# the _bbox() call to include it; at the current staging that was checked and it
-# fits too, the worst case being the black pounce's smear reaching 805 rig units
-# left of its root against the sword's own 724.
+# Two things are deliberately not counted in the figure rows. Detach duplicates:
+# the flying skull is *meant* to leave frame, and counting it against the panel
+# edge would report the torso's crest twice. SlashFX: a swing smear is not a
+# figure, and a smear caught by the edge is not the failure this measures. Flip
+# the `false` in the _bbox() call to include it; at the current staging that was
+# checked and it fits too, the worst case being the black pounce's smear reaching
+# 805 rig units left of its root against the sword's own 724.
+#
+#   godot --headless --script tools/measure_stage_bounds.gd -- --detach
+#
+# --detach measures the flying skull instead, and it is a *different* question
+# with a different pass condition: the duplicates are allowed -- required -- to
+# leave the panel, so what is checked is that they are already invisible when
+# they do. Three numbers per clash whose defender is black:
+#
+#   grow    the group's alpha box at its widest, over its box at spawn. The
+#           duplicates take the original's global transform and nothing tweens
+#           scale, so anything but ~1.00 means the skull really is growing.
+#   spread  how far the three duplicates' centres drift apart, in panel px,
+#           over their separation at spawn. Head, Face and Crest are one rigid
+#           object; anything but ~0 is the crest coming off the skull.
+#   edge_a  the group's alpha at the first frame any part of it crosses a panel
+#           edge, i.e. the moment the Mask starts cutting it. This is the one
+#           with a pass condition: it must be 0.
+#
+# Exit code stays "did a figure leave the panel"; the detach rows carry their own
+# OK/BAD on edge_a and are reported, not folded into it, because a skull that
+# fades late is a different defect from a figure that is clipped standing still.
 
 ## Read off the panel rather than restated here: a tool that carries its own
 ## copy of the panel size reports "OK" against the wrong rectangle the first
@@ -77,10 +98,12 @@ const CLASHES := [
 
 var _bbox_cache := {}
 var _verbose := false
+var _detach := false
 
 
 func _initialize() -> void:
 	_verbose = OS.get_cmdline_user_args().has("--verbose")
+	_detach = OS.get_cmdline_user_args().has("--detach")
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	for i in 40:
@@ -139,9 +162,21 @@ func _run(session: GameSession, panel: Node, mask: Control, rigs: Dictionary,
 			"t": [INF, 0.0, "?"], "b": [-INF, 0.0, "?"],
 			"u": [INF, -INF, INF, -INF],
 		}
+	# The flying skull, when there is one. Sampled outside the mask gate below:
+	# the duplicates are measured against the panel rectangle itself, and the
+	# question is when they cross it, which is exactly the frames that gate drops.
+	var det := {
+		"spawn": Rect2(), "spawn_spread": -1.0, "grow": 0.0, "spread": 0.0,
+		"edge_t": -1.0, "edge_a": -1.0, "gone_t": -1.0,
+		"lit": [INF, -INF, INF, -INF],
+	}
 	while panel.is_clashing():
 		await process_frame
 		var t := (Time.get_ticks_usec() - start) / 1_000_000.0
+		if _detach and defender == "black":
+			# Off the stage, not off the rig: the flight is parented to the stage
+			# so the body's knockback cannot drag it (CharacterRig.detach_head).
+			_sample_detach(rigs["black"].get_parent(), mask, det, t)
 		# Only while the panel is fully open. The wipe-in and the wipe-out narrow
 		# the Mask on purpose, so a figure outside it during those is clipped by
 		# the transition rather than by the staging, and counting it would report
@@ -188,7 +223,91 @@ func _run(session: GameSession, panel: Node, mask: Control, rigs: Dictionary,
 			w["l"][0], w["l"][1], w["l"][2], w["r"][0], w["r"][1], w["r"][2],
 			w["t"][0], w["t"][1], w["t"][2], w["b"][0], w["b"][1], w["b"][2],
 			over_l, over_r, over_t, over_b, u[0], u[1], u[2], u[3]])
+	if _detach and defender == "black":
+		if det["spawn_spread"] < 0.0:
+			print("%-13s detach  NONE (no duplicates were ever visible)" % label)
+		else:
+			var lit: Array = det["lit"]
+			print("%-13s detach  %s  grow=%.2f spread=%5.1fpx edge_t=%6.3f edge_a=%.2f gone_t=%.3f  spawn=%.0f,%.0f %.0fx%.0f  lit l=%6.1f r=%6.1f t=%6.1f b=%6.1f" % [
+				label, "OK " if det["edge_a"] <= 0.0 else "BAD",
+				det["grow"], det["spread"], det["edge_t"], det["edge_a"],
+				det["gone_t"], det["spawn"].position.x, det["spawn"].position.y,
+				det["spawn"].size.x, det["spawn"].size.y,
+				lit[0], lit[1], lit[2], lit[3]])
 	return bad
+
+
+# One frame of the flying skull: the group's alpha box in Mask coordinates, how
+# far its three parts have drifted apart, and the alpha it is carrying when it
+# first touches a panel edge. Everything is folded into `det` as a running worst.
+func _sample_detach(host: Node, mask: Control, det: Dictionary, t: float) -> void:
+	var inv := mask.get_global_transform().affine_inverse()
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	var centres: Array[Vector2] = []
+	var alpha := 0.0
+	for s: Sprite2D in _sprites(host):
+		if not String(s.name).ends_with("Duplicate") or s.texture == null:
+			continue
+		if not s.is_visible_in_tree():
+			continue
+		var prof := _profile(s.texture)
+		if prof.is_empty():
+			continue
+		var xf: Transform2D = inv * s.get_global_transform()
+		var slo := Vector2(INF, INF)
+		var shi := Vector2(-INF, -INF)
+		for pt: Vector2 in prof:
+			var p := xf * (pt + s.offset)
+			slo = slo.min(p)
+			shi = shi.max(p)
+		lo = lo.min(slo)
+		hi = hi.max(shi)
+		centres.append((slo + shi) * 0.5)
+		alpha = maxf(alpha, _alpha_to(s, host))
+	if centres.is_empty():
+		return
+	# Widest gap between any two of the three parts. Rigid means this never moves
+	# off its value at spawn; the Day-5 defect is it growing without bound.
+	var spread := 0.0
+	for a in centres:
+		for b in centres:
+			spread = maxf(spread, a.distance_to(b))
+	var box := Rect2(lo, hi - lo)
+	if det["spawn_spread"] < 0.0:
+		det["spawn"] = box
+		det["spawn_spread"] = spread
+	det["grow"] = maxf(det["grow"], maxf(
+		box.size.x / maxf(1.0, det["spawn"].size.x),
+		box.size.y / maxf(1.0, det["spawn"].size.y)))
+	det["spread"] = maxf(det["spread"], spread - float(det["spawn_spread"]))
+	# Only frames the player can still see: an extent reached at alpha 0 is not
+	# a thing that happened on screen.
+	if alpha > 0.001:
+		var lit: Array = det["lit"]
+		lit[0] = minf(lit[0], lo.x)
+		lit[1] = maxf(lit[1], hi.x)
+		lit[2] = minf(lit[2], lo.y)
+		lit[3] = maxf(lit[3], hi.y)
+	var out := lo.x < 0.0 or lo.y < 0.0 or hi.x > PANEL.x or hi.y > PANEL.y
+	if out and det["edge_t"] < 0.0:
+		det["edge_t"] = t
+		det["edge_a"] = alpha
+	if alpha <= 0.001 and det["gone_t"] < 0.0:
+		det["gone_t"] = t
+
+
+## Effective modulate alpha of `node` as seen under `stop`, i.e. every modulate
+## between the sprite and the rig multiplied together. A group that fades by
+## fading its container has no alpha on the sprite at all.
+func _alpha_to(node: CanvasItem, stop: Node) -> float:
+	var a := 1.0
+	var n: Node = node
+	while n != null and n != stop:
+		if n is CanvasItem:
+			a *= (n as CanvasItem).modulate.a * (n as CanvasItem).self_modulate.a
+		n = n.get_parent()
+	return a
 
 
 # One extreme, with the time and the sprite that reached it.

@@ -169,6 +169,7 @@ func run(scene_tree: SceneTree) -> void:
 	_run_capture_marks()
 	_run_last_move_marks()
 	_run_clash_lookup()
+	await _run_detach_flight()
 	_run_bot_smoke()
 	await _run_gesture_smoke()
 	await _run_clash_finish()
@@ -1075,6 +1076,80 @@ func _run_clash_lookup() -> bool:
 # adapter and hands back a string (ADR-0005). Everything here is a property of
 # that one function, and every FEN is crafted so exactly one move is the right
 # answer -- a bot that started looking at the reply would fail the third one.
+# The flying head, checked as geometry rather than as a picture. All three parts
+# of the Day-5 defect -- the crest coming off the skull, the skull reading
+# larger, the flight crossing the panel edge still fully opaque -- are facts
+# about transforms, and all three survived eighteen days of a green suite in the
+# one asset the sprint exists to produce, because nothing here had ever looked at
+# the duplicates at all.
+#
+# Two of the three need no viewport and are therefore here. The third does --
+# where the flight is against the panel edges, and with what alpha -- and stays
+# in tools/measure_stage_bounds.gd --detach, which owns the mask geometry.
+#
+# Deliberately about global transforms rather than about the container: "the
+# three parts hold their arrangement" is the property, and a check that asserted
+# the container instead would pass on any future rewrite that kept the node and
+# lost the rigidity.
+func _run_detach_flight() -> bool:
+	var ok := true
+	var rig: CharacterRig = load("res://scenes/character_rig_skeleton_warrior.tscn").instantiate()
+	# The mount off duel_panel.tscn, mirror and all: the flight is expressed in
+	# rig-local units through this basis, so a rig tested at scale 1 would not be
+	# testing the arithmetic the panel runs.
+	rig.scale = Vector2(-0.52, 0.52)
+	tree.root.add_child(rig)
+	await tree.process_frame
+
+	rig.detach_head()
+	ok = _check("a detached head is one piece of debris, and it is there",
+		rig.debris_count() == 1) and ok
+	var parts: Array[Sprite2D] = []
+	for n in rig.get_parent().find_children("*Duplicate", "Sprite2D", true, false):
+		parts.append(n as Sprite2D)
+	ok = _check("and it is the skull, the face and the crest -- three sprites, not two (%d)"
+		% parts.size(), parts.size() == 3) and ok
+	if parts.size() != 3:
+		rig.reset_defeat()
+		rig.free()
+		return false
+
+	var spawn: Array[Transform2D] = []
+	for p in parts:
+		spawn.append(p.get_global_transform())
+	var drift := 0.0
+	var grew := 0.0
+	var deadline := Time.get_ticks_msec() + 1400
+	var flew := 0.0
+	while Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+		for i in parts.size():
+			var now := parts[i].get_global_transform()
+			flew = maxf(flew, now.origin.distance_to(spawn[i].origin))
+			# Scale first: nothing in the flight may resize the skull, so this is
+			# the "the detached head reads larger" claim reduced to a number.
+			grew = maxf(grew, (now.get_scale() - spawn[i].get_scale()).length())
+			# Then the arrangement: each part's pose *as seen from the first
+			# part* must be the pose it was spawned with.
+			var rel := (now.affine_inverse() * parts[0].get_global_transform()).origin
+			var rel0 := (spawn[i].affine_inverse() * spawn[0]).origin
+			drift = maxf(drift, rel.distance_to(rel0))
+
+	ok = _check("the head actually flies (%.0f px) rather than sitting on the neck" % flew,
+		flew > 100.0) and ok
+	ok = _check("the skull, the face and the crest hold their arrangement to the pixel across the whole flight (%.2f px)"
+		% drift, drift < 1.0) and ok
+	ok = _check("and nothing on the way out is resized, so the skull stays the size of the head it replaced (%.4f)"
+		% grew, grew < 0.001) and ok
+
+	rig.reset_defeat()
+	ok = _check("and it is gone once the defeat is reset",
+		rig.debris_count() == 0
+		and rig.get_parent().find_children("*Duplicate", "Sprite2D", true, false).is_empty()) and ok
+	rig.free()
+	return ok
+
+
 func _run_bot_smoke() -> bool:
 	var ok := true
 	var bot := GreedyBotScript.new()
@@ -1631,8 +1706,10 @@ func _banter_state(banter) -> String:
 
 
 # The detached head is the one piece of debris with a life of its own: it is a
-# duplicate sprite parented to the rig, so anything left flying shows up here as
-# a child that should not be there.
+# container of duplicate sprites the rig spawns onto the stage, so anything left
+# flying shows up here as a 1 where an unskipped run has a 0. Asked of the rig
+# rather than counted off its children -- the container is not one of them, and a
+# child count went quietly blind the day the flight was decoupled from the body.
 #
 # The whole transform, not just x. Until the pounce there was nothing that moved
 # a figure off the floor, so position.x alone was the whole story; a leap that
@@ -1641,10 +1718,7 @@ func _banter_state(banter) -> String:
 # especially, because a squash written as an absolute Vector2 rather than as a
 # factor of the authored one silently unmirrors the skeleton.
 func _rig_state(label: String, rig: CharacterRig) -> String:
-	var debris := 0
-	for child in rig.get_children():
-		if String(child.name).ends_with("Duplicate") and not child.is_queued_for_deletion():
-			debris += 1
+	var debris := rig.debris_count()
 	var anim: AnimationPlayer = rig.get_node("AnimationPlayer")
 	return "%s_pos=%s %s_rot=%.3f %s_scale=%s %s_z=%d %s_anim=%s %s_debris=%d" % [
 		label, rig.position, label, rig.rotation, label, rig.scale,

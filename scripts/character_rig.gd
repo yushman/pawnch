@@ -53,13 +53,19 @@ const WEAPON_FILE := "weapon_%s.png"
 # Head, Face and Crest are all children of, by NodePath -- reparenting any of them
 # at runtime to animate a flight path would desync those tracks. Instead a
 # duplicate of each is spawned in place, the originals are hidden, and the
-# duplicates are tweened independently while Dying keeps driving the (now
-# invisible) originals underneath. bone_007 carries all three sprites; leaving
-# any one of them un-duplicated leaves it floating in place, still visible,
-# once the other two fly off.
-var _detached_head: Sprite2D
-var _detached_face: Sprite2D
-var _detached_crest: Sprite2D
+# duplicates fly while Dying keeps driving the (now invisible) originals
+# underneath. bone_007 carries all three sprites; leaving any one of them
+# un-duplicated leaves it floating in place, still visible, once the other two
+# fly off.
+#
+# The three duplicates hang under **one container**, and the flight is tweened on
+# the container alone. That is the fix for the Day-5 defect: they used to be
+# three siblings under this node with `rotation` tweened on each, and Head, Face
+# and Crest each have their own origin -- none of them the skull's centre, all of
+# them a texture corner -- so each spun about a different point and they fanned
+# apart. 670 px of drift by the end of the flight, which is the crest coming off
+# the skull and hanging beside the valkyrie for the rest of the duel.
+var _detached: Node2D
 var _detach_tween: Tween
 ## The weapon the generated scene mounts, captured before the first per-type swap
 ## overwrites it. Its path is also what names this rig's own family directory.
@@ -97,44 +103,101 @@ func play_state(state: String) -> void:
 	_anim.play(state)
 
 
-# `local_direction` is in this node's own local space, i.e. skeleton-local --
-# scenes/duel_panel.tscn mounts the skeleton at scale=(-0.45, 0.45), so a
-# negative local x arrives on screen as positive x: away from the valkyrie.
-func detach_head(local_direction := Vector2(-1.0, -0.35), distance := 900.0, duration := 0.9) -> void:
-	if _detached_head:
-		return
-	_detached_head = _spawn_duplicate(_head)
-	_detached_face = _spawn_duplicate(_face)
-	_detached_crest = _spawn_duplicate(_crest)
-	_head.visible = false
-	_face.visible = false
-	_crest.visible = false
+## The flight, as fractions of `duration`. START is when the fade begins, SEC is
+## how long it takes, and START + SEC is the frame the skull is gone.
+##
+## The constraint on them is geometric, not aesthetic. The black rig stands at
+## x=893 in a 1240-wide panel and the skull's own box already reaches x=1114
+## standing still, so there are 126 px of panel to the right of a severed head
+## and 370 px above it -- and whatever is left of it when it reaches either edge
+## is cut in half by the Mask in front of the player. `distance` and the
+## direction below are chosen so the whole flight fits inside those two numbers
+## (measured: tools/measure_stage_bounds.gd --detach), and the fade then only has
+## to finish before the panel wipes out -- 0.45 + 0.40 of a 0.9 s flight, on top
+## of the strike's impact at 0.52 and its 0.11 s hitstop, puts the last lit frame
+## of the skull on `exit` at 1.40. The strike is the tightest of the three; the
+## pounce and the charge exit later still.
+##
+## They used to be 0.65 and 0.35 against a 900-unit flight aimed almost straight
+## downrange: the skull crossed the right edge 0.14 s after impact and the fade
+## had not started, so every capture in the game ended on a skull sliced by an
+## invisible line.
+const DETACH_FADE_START := 0.45
+const DETACH_FADE_SEC := 0.40
 
-	var offset := local_direction.normalized() * distance
+# `local_direction` is in this node's own local space, i.e. skeleton-local --
+# scenes/duel_panel.tscn mounts the skeleton at scale=(-0.52, 0.52), so a
+# negative local x arrives on screen as positive x: away from the valkyrie.
+# `distance` is in rig units for the same reason: 620 of them is 620*0.52 = 322
+# px of travel on the panel.
+#
+# Up rather than downrange, which is the direction the room is in. The default
+# used to be (-1, -0.35), i.e. almost flat and away from the attacker -- the
+# natural read, and the one there is no space for: 126 px of panel that way
+# against 370 px straight up.
+func detach_head(local_direction := Vector2(-0.18, -1.0), distance := 620.0, duration := 0.9) -> void:
+	if _detached:
+		return
+	# One container, three sprites, one tween on the container. Its origin is the
+	# skull's own centre, so the tumble spins about the head instead of about a
+	# texture corner.
+	#
+	# Parented to the **stage**, not to this rig, and that is a fix rather than a
+	# tidy-up: a severed head must not be carried by what happens to the body
+	# afterwards. STRIKE_KNOCKBACK drives the defender's root 133 px downrange
+	# and STRIKE_KNOCK_TILT rolls it 0.22 rad, and a head hanging off that root
+	# inherited about 210 px of travel it never should have had -- more than the
+	# 126 px of clear panel it has, so on the strike no flight distance and no
+	# fade timing could have kept it in frame. Ownership does not move with it:
+	# reset_defeat() frees it and debris_count() is how the skip sweep sees it.
+	var host := get_parent()
+	if host == null:
+		host = self
+	_detached = Node2D.new()
+	_detached.name = "HeadDuplicate"
+	_detached.z_index = z_index
+	host.add_child(_detached)
+	_detached.global_transform = Transform2D(0.0,
+		_head.get_global_transform() * _head.get_rect().get_center())
+	for source: Sprite2D in [_head, _face, _crest]:
+		var dup := source.duplicate() as Sprite2D
+		dup.name = source.name + "Duplicate"
+		dup.z_index = source.z_index + 50
+		_detached.add_child(dup)
+		# After the reparent, and from the source rather than from the copy: this
+		# is what freezes the three in their impact-frame arrangement while
+		# `Dying` carries on collapsing the originals underneath.
+		dup.global_transform = source.get_global_transform()
+		source.visible = false
+
+	# Rig units into stage px, mirror included: the mount basis is what turns a
+	# negative local x into travel away from the valkyrie, and it carries the
+	# 0.52 as well, so `distance` stays quoted in the rig's own units.
+	var offset := get_transform().basis_xform(local_direction.normalized()) * distance
 	_detach_tween = create_tween()
 	_detach_tween.set_parallel(true)
-	for dup in [_detached_head, _detached_face, _detached_crest]:
-		# EASE_IN, not EASE_OUT: the defender's head bone sits close to the
-		# panel's clipped right edge already (see duel_panel.gd's staging
-		# comment), so a fast-start curve crossed that edge, and left the
-		# panel's Mask (clip_contents), within a couple of frames -- the head
-		# and face never had a visible flight, only the crest (mounted closer
-		# to the bone's centre) did. Starting slow keeps the duplicates inside
-		# the mask for most of the beat and lets them accelerate away only
-		# once they are meant to be leaving frame.
-		_detach_tween.tween_property(dup, "position", dup.position + offset, duration) \
-			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-		_detach_tween.tween_property(dup, "rotation", dup.rotation + 5.5, duration)
-		_detach_tween.tween_property(dup, "modulate:a", 0.0, duration * 0.35).set_delay(duration * 0.65)
+	# EASE_OUT, not the EASE_IN this used to need: a fast-start curve was
+	# unusable while the skull was flying at an edge two frames away, and it is
+	# the right curve now that the flight ends inside the frame -- the head is
+	# thrown off the neck by the blow, not launched, so it covers most of its arc
+	# early and coasts to a stop while it fades.
+	_detach_tween.tween_property(_detached, "position", _detached.position + offset, duration) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	# The spin decays with the travel rather than running on linearly past it: a
+	# head still turning at full rate after it has stopped moving reads as a
+	# sprite being animated, not as an object that was hit.
+	_detach_tween.tween_property(_detached, "rotation", _detached.rotation + 5.5, duration) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_detach_tween.tween_property(_detached, "modulate:a", 0.0, duration * DETACH_FADE_SEC) \
+		.set_delay(duration * DETACH_FADE_START)
 
 
-func _spawn_duplicate(source: Sprite2D) -> Sprite2D:
-	var dup := source.duplicate() as Sprite2D
-	dup.name = source.name + "Duplicate"
-	dup.z_index = source.z_index + 50
-	add_child(dup)
-	dup.global_transform = source.global_transform
-	return dup
+## Whether the flying head is still in the scene, for the skip sweep's state
+## string. A method rather than a child count on this node, because the container
+## lives on the stage: counting this rig's children would report 0 forever and
+## the sweep would stop being able to see a head left behind.
+func debris_count() -> int:
+	return 1 if _detached != null and not _detached.is_queued_for_deletion() else 0
 
 
 # Idempotent: safe to call whether or not detach_head() ever ran (back-to-back
@@ -143,18 +206,16 @@ func _spawn_duplicate(source: Sprite2D) -> Sprite2D:
 func reset_defeat() -> void:
 	if _detach_tween and _detach_tween.is_valid():
 		_detach_tween.kill()
-	for dup in [_detached_head, _detached_face, _detached_crest]:
-		if dup == null:
-			continue
+	if _detached:
 		# Removed before it is freed, not just queued: queue_free() leaves the
-		# duplicate in the tree until the end of the frame, and a clash that
+		# container in the tree until the end of the frame, and a clash that
 		# starts in that same frame -- which is what a skip followed by another
 		# capture does -- would draw the previous clash's flying head.
-		remove_child(dup)
-		dup.queue_free()
-	_detached_head = null
-	_detached_face = null
-	_detached_crest = null
+		var host := _detached.get_parent()
+		if host:
+			host.remove_child(_detached)
+		_detached.queue_free()
+		_detached = null
 	_head.visible = true
 	_face.visible = true
 	_crest.visible = show_crest
