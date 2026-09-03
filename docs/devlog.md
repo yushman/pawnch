@@ -3803,7 +3803,122 @@ documents.
   what is true today. Deciding that is a publication-day decision and it was not taken today.
 
 
+## 2026-09-03 — a bookkeeping pass, and less of it than advertised
+
+No code, no device. The open-task counts had drifted away from what is actually outstanding, so
+this is the pass that makes `openspec status` mean something again. Recorded because one box was
+ticked today on evidence measured on 2026-08-23, and a reader finding that later deserves to know
+it was not measured today.
+
+**What I expected to find and did not.** I described five items as bookkeeping. Four of them were
+already terminal: the Ani Chess 3D recording and the vsync bisection got their final notes when
+they died (2026-09-02 and 2026-08-23), and the board-sprite-export task has said "superseded by
+ADR-0011, box stays empty" since 2026-08-17. So the pass was two edits, not five, and saying so is
+cheaper than quietly doing less than announced.
+
+**One task was genuinely done and nobody came back for it.** `duel-panel-and-rig`'s "warm the
+panel's assets at boot" has been unchecked since 2026-08-18 with a careful note explaining that
+the first open after a cold start showed `dropped=1 worst_gap=25.2ms@5` where a later open showed
+`dropped=0`, and so did not meet its own bar. That note was right about the numbers and wrong about
+what they meant, and the thing that settled it did not exist yet: **frame-probe regions.** With
+them, Day 9's cold-start run reports the first clash as `region=clash frames=114 dropped=0
+worst_gap=0.0ms` — the frame-5 stall is the engine's own, it lands outside the clash region, and
+ADR-0006 excludes it by construction. The bar was "no worse than a later open"; the first clash of
+a cold session turned out to be the *cleanest* of the 26 measured, because the warm ones each carry
+a driver tap. Checked off, with the evidence and its date written into the task.
+
+**The convention I checked before touching anything.** Whether to tick a cancelled task or leave it
+empty is already answered in this repo: `2026-08-18-board-and-move-presentation` sits in the
+archive with an unchecked box and a paragraph beginning "NOT done, and deliberately not faked". So
+a change here may be archived with open boxes, and cancelled work keeps its empty box and gains a
+terminal note instead. Nothing was ticked to make a count look better.
+
+**Where that leaves the counts.** `duel-panel-and-rig` 10/13, `knight-takes-pawn-clash` 15/20,
+`freeze-measurements-and-queen-cut` 20/21, `per-type-weapons-and-generic-strike` 20/21. Of the ten
+still open, six cannot be closed by work — they are cut, superseded, or waiting on a person. The
+genuine remainder is three: the detached-head defect, twenty human viewings of the strike, and the
+verdict.
+
+**And the verdict shrank to its true size today.** The Day-3 devlog task's note still said it was
+waiting on Block C, which has now run as far as it ever will. Rewritten: every measurement, figure
+and recording that task asks for exists. What is missing is one dated sentence saying yes or no.
+That is the whole remaining content of the task, and of the sprint's stated output.
+
+## 2026-09-03 — Day 11: the verdict is yes, and a six-year-old who cannot win
+
+**Yes.** The owner's answer, given on 2026-09-03: the clash reads as the thing this sprint set out
+to build, and it is worth continuing. That is the sentence the ⛔ kill checkpoint has been waiting
+for since 2026-08-17, seventeen days and nine working sessions after it was due.
+
+**What it rests on, and what it does not.** It rests on the clash as it actually plays on the
+phone — `docs/media/day10-clash-ours.mp4`, six clashes, and everything the owner has watched on
+the device since Day 3. It does **not** rest on the comparison the checkpoint originally asked
+for: "does it obviously win against Ani Chess 3D" cannot be answered from this repository, because
+the app is no longer installed and the comparison was cut on 2026-09-02 rather than faked. So this
+is an answer to the first half of the question, given by the person whose call it is, with the
+second half explicitly unanswered. Recorded that way so nobody later reads it as a measured result.
+
+It is also given with the defect in plain sight rather than around it:
+`docs/media/day10-headless-torso-floating-crest.png` is the last second of the most-watched clash,
+and it is a headless torso with a crest hanging in the air. Yes, with that still in the frame.
+
+### The playtest, and the finding that is not about juice
+
+A six-year-old played. **He does not win, and the owner's reading is that there is not enough
+teaching for him to.**
+
+Take that seriously and then take it apart, because two very different fixes are hiding in one
+sentence and they sit on opposite sides of this project's scope line.
+
+**Reading one — he lacks chess.** He does not know what is safe, so he hangs pieces. That is a
+teaching gap, and teaching is **non-goal 1** in `docs/product-analysis.md`: no lessons, puzzles,
+hints or coaching, decided at the start and never revisited. It is the first item on a list the
+project treats as decisions rather than a backlog.
+
+**Reading two — the opponent is the wrong opponent for a six-year-old.** The bot is deliberately
+capture-greedy ([ADR-0005](adr/0005-capture-greedy-bot-not-a-real-engine.md)) — it was built to
+generate clashes, which is exactly what the sprint needed to test. But a one-ply capture scan
+punishes hung pieces *perfectly and every single time*, and hanging pieces is the whole of how a
+six-year-old plays. The bot is bad at chess and merciless at precisely the one thing this child
+does. Nobody chose that as a difficulty setting; it fell out of an instrument built for a
+different purpose.
+
+The two readings are not equally expensive. Teaching is a non-goal and a redesign. A second,
+gentler difficulty is already named in `docs/mvp-plan.md` as the **first Should to buy on Day 12**
+— though the plan's condition for buying it is wrong for what happened here: it says buy it only
+if the child got bored of *winning*, and this child never won at all. That condition was written
+for a child who beats the bot too easily. It has no branch for a child who cannot beat it, which
+is the case that actually arrived.
+
+**Neither is being built today**, and the choice is not mine. Written down here and in
+`## Ideas for later`; the non-goal stands until the owner moves it, and a good idea arriving
+mid-build does not go into the code.
+
+One more thing worth separating before anyone acts on this: **"he cannot win" and "he stopped
+wanting to play" are different findings, and only the first has been reported.** Day 11's metric 3
+is three full games in one sitting with the skips counted per game — the question being whether
+the clash survives repetition. That measurement has not been made, and losing is not evidence
+about it either way.
+
 ## Ideas for later
+
+- **A gentler opponent, for the end of the age range that cannot beat this one.** Day 11's
+  playtest: a six-year-old does not win. The bot is capture-greedy by design
+  ([ADR-0005](adr/0005-capture-greedy-bot-not-a-real-engine.md)) and therefore punishes a hung
+  piece perfectly every time, which is the whole of how a six-year-old plays — it is bad at chess
+  and merciless at exactly the one thing this child does. `docs/mvp-plan.md` already names a
+  second difficulty as the first Should to buy on Day 12, but its condition is written for a child
+  who wins too easily and has no branch for one who never wins. The cheapest honest version is not
+  a stronger engine reversed: it is the same one-ply scan taking the *best* capture only some of
+  the time, so hanging a piece is survivable without the opponent becoming random. It stays out of
+  the code until the owner decides, because "which difficulty a six-year-old gets" is a product
+  decision and non-goal 11 parked settings deliberately.
+- **Teaching, and why it is still a non-goal.** The other reading of the same playtest is that the
+  child lacks chess rather than that the bot is harsh. That fix is lessons, hints or coaching —
+  **non-goal 1**, the first decision this project took. It is recorded here rather than acted on;
+  moving it is the owner's call and it is a redesign, not a feature. If it ever moves, the thing
+  to reach for first is probably the mini-arena already parked below, which teaches capture by
+  being *about* capture, without a word of lesson text.
 
 - **The queen's own bespoke clash.** Cut on 2026-08-23 as cut order step 1, and parked here so
   the cut is a decision with a home rather than a deletion. The queen is the *most frequent*

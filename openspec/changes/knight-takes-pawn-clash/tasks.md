@@ -292,13 +292,22 @@ for 2026-08-17 for the full reasoning; see `docs/mvp-plan.md` Day 10 for where t
       the phone, and an APK mirror was not an acceptable substitute. There is no Ani Chess 3D
       recording in `docs/media/` and there is not going to be one from this session.
 
-- [ ] **⛔ Answer the question, dated, in the devlog, looking at both recordings side by side:**
+- [x] **⛔ Answer the question, dated, in the devlog, looking at both recordings side by side:**
       *does this read as PvZ-grade juice, and does it obviously win against Ani Chess 3D?* Not "is
       it promising". **Yes →** Day 4. **No →** Days 4–5 become the motion-and-effects art retry and
       cut order steps 1 and 2 fire immediately.
       *Verify:* the verdict is a written sentence in `docs/devlog.md` that says yes or no first and
       explains second.
-      **Still open on 2026-09-02, and deliberately left for the owner.** The question as written
+      **Answered 2026-09-03: YES.** The owner's sentence is the first line of the 2026-09-03
+      Day-11 devlog entry. Per this task's own branch, yes means the sprint continues and no cut
+      fires from this gate. Two honest qualifications, both written into that entry rather than
+      here: it answers the *first* half of the question — the juice — because the Ani Chess 3D
+      half was cut on 2026-09-02 and cannot be answered from this repository; and it was given
+      with `docs/media/day10-headless-torso-floating-crest.png` in plain sight, not around it.
+      Seventeen days late against a checkpoint that was due on 2026-08-17, which is itself the
+      most useful thing this task recorded.
+
+      **The superseded note, kept for the record — "still open on 2026-09-02":** The question as written
       is two questions -- "does this read as PvZ-grade juice" and "does it obviously win against
       Ani Chess 3D" -- and the second is now unanswerable from this repository, because the
       comparison was cut. The first needs a person's eye on a 15 s clip, and this project's own
@@ -391,15 +400,26 @@ still wired into `duel_panel.gd`. See `docs/mvp-plan.md` Day 9 for where this la
       *Verify:* ADR-0011 decision 5 describes the shipped scene; the "Bad" consequence about
       authoring on both rigs is updated to match.
 
-- [ ] **Devlog entry for the day.** What shipped, what broke, every number with the command that
+- [x] **Devlog entry for the day.** What shipped, what broke, every number with the command that
       produced it, the ADR-0011 in-place edit called out per the working rhythm in `CLAUDE.md`, the
       criterion-3 rewrite called out the same way, and the dated verdict from block C. Write it
       even if the day went badly — especially then.
       *Verify:* the entry exists in `docs/devlog.md`, is dated 2026-08-17, and contains the verdict
       sentence and at least the frame, cue and draw-call figures.
-      **Still unchecked, and now for one reason instead of two.** An entry for 2026-08-17 was
-      appended covering that session (staging fix, Block A/B on-device results, the two defects
-      found, the scope cut and what got deferred where). The draw-call and frame figures Block D
-      asks for exist now — they are in the 2026-08-23 entry, with the commands. **The verdict
-      sentence still does not exist**, because Block C has never run: no recordings, no Ani Chess 3D
-      comparison, no dated yes/no. That is Day 10's. This box stays open until it is written.
+      **Checked off 2026-09-03.** The verdict sentence now exists, so the last thing this task
+      was waiting for is written. One mismatch with the verify line, stated rather than glossed:
+      it asks for the sentence inside the entry *dated 2026-08-17*, and the sentence is dated
+      2026-09-03, because that is the day it was given. The Day-3 entry cannot honestly contain a
+      verdict nobody had reached. Everything else the line asks for is in place — the session's
+      own entry from 2026-08-17, and the frame, cue and draw-call figures in the 2026-08-23 entry
+      with their commands.
+
+      **The superseded note, kept for the record:** An entry for 2026-08-17
+      was appended covering that session (staging fix, Block A/B on-device results, the two defects
+      found, the scope cut and what got deferred where). Everything else this verify line asks for
+      has since been written: the draw-call and frame figures are in the 2026-08-23 entry with the
+      commands that produced them, and Block C ran on 2026-09-02 — `docs/media/day10-clash-ours.mp4`
+      exists, and the Ani Chess 3D half was cut by the owner rather than deferred, so it is never
+      coming. **What is missing is the one sentence: the dated yes/no.** It is the owner's to write
+      and this box stays open until it is. There is nothing else left in it — no measurement, no
+      recording, no session's work; a single sentence is the whole remaining content of this task.

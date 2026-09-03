@@ -316,6 +316,13 @@ with airplane mode on, and both READMEs state the same numbers.
 
 **Done when:** the verdict file exists, is dated, and says yes or no in its first sentence.
 
+**Status 2026-09-03.** The verdict exists and is **yes** — first line of the Day-11 devlog entry.
+Metric 1 is **blocked and likely dead**: it needs the Ani Chess 3D half of a blind A/B pair, and
+that comparison was cut on 2026-09-02 because the app is no longer installed on the device. Metric
+3 is **half done**: a six-year-old played and does not win, which is a real finding, but the
+measurement metric 3 actually asks for — three full games in one sitting, skips counted per game —
+has not been made. Losing is not evidence about whether the clash survives repetition.
+
 ---
 
 ## Day 12 — Buffer
@@ -325,6 +332,14 @@ Not padding to spend. This is what absorbs the overrun, and by this point it usu
 If it survives intact, the first Should to buy is a **second bot difficulty** (+0.5) — but only
 if the Day-11 playtest said the kid got bored of *winning*, not bored of *clashes*. If he got
 bored of clashes, no Should fixes it and the verdict already knows that.
+
+**That condition is wrong for what actually happened, noted 2026-09-03.** It has two branches —
+bored of winning, bored of clashes — and the case that arrived is neither: the six-year-old
+**never won at all**. The condition was written for a child who beats the bot too easily. A second
+difficulty is still the first Should to buy, but for the opposite reason to the one written here,
+and the competing reading of the same playtest (he lacks chess, not that the bot is harsh) runs
+into non-goal 1. Both readings are laid out in the Day-11 devlog entry and parked in
+`## Ideas for later`; neither is decided.
 
 ---
 

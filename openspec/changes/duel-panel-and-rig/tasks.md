@@ -709,7 +709,7 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > either have to regenerate or awkwardly retrofit. Leaving the box unchecked and not attempted;
       > original task text left untouched above.
 
-- [ ] **Warm the panel's assets at boot.** Everything the panel draws is loaded and its materials
+- [x] **Warm the panel's assets at boot.** Everything the panel draws is loaded and its materials
       touched during startup, so the first open after a cold start does not compile a shader or
       upload a texture.
       *Verify:* cold-start the app and open the panel immediately; `tools/frametime` shows the
@@ -786,6 +786,20 @@ and `Dying` timelines are the starting material for the timing skeleton, not a r
       > cannot honestly pass, since even a later window is not always `dropped=0` on this device — but
       > the cause is now recorded rather than "unexplained," and this is not a panel-warming gap: nothing
       > further should be attempted here without a change to what's being asked.
+
+      **Checked off 2026-09-02, on evidence taken 2026-08-23 that nobody came back to apply.**
+      The bar this task set — the first open after a cold start meets the same budget as a later
+      one — is met, and the reason it looked unmet in 2026-08-18 is that the instrument could not
+      yet separate the clash from the window around it. With frame-probe regions (Block D of
+      `knight-takes-pawn-clash`, run on Day 9) the first clash after a cold start, tapped as soon
+      as `PAWNCH_READY` appeared, reports `PAWNCH_CLASH region=clash frames=114 dropped=0
+      worst_gap=0.0ms` — command `WINDOW=25 tools/frametime.sh --cold` on `2312FPCA6G`. The
+      `dropped=1 worst_gap=…@5` above is the engine's own cold-start stall at frame 5, which
+      ADR-0006 excludes by construction and which falls outside the clash region entirely.
+      It is better than the bar rather than equal to it: warm clashes in that same session ran
+      **1.27 drops each over 26**, so the first clash of a cold session was the *cleanest* one
+      measured. And Day 10 established that even those 1.27 belong to `adb shell input tap`
+      spawning a Dalvik VM, not to the clash. Nothing here is outstanding.
 
 - [x] **Draw-call measurement and atlas occupancy with the panel open.** Both characters idling,
       panel open.
