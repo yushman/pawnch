@@ -67,6 +67,14 @@ over 20 ms, capture-tap → first clash frame < 200 ms, total clash ≤ 2.0 s, c
 ≤ 3.0 s, ~60 draw calls, and **zero network** — `android.permission.INTERNET` must never appear
 in the manifest.
 
+## Licences
+
+The code is MIT (`LICENSE`). `THIRD-PARTY-NOTICES.md` names every third-party work that ships in
+the APK with its terms: the vendored chess rules (MIT) and the Craftpix-derived character and
+board art (Craftpix File License — shippable inside the game, not redistributable as art). **No
+Craftpix-derived art may ever reach an image model** — not as training data, style reference or
+`--ref`, not once (clause 3.1.1).
+
 ## Testing
 
 Cover the silent-failure list in `docs/system-analysis.md` first, and treat everything else as
@@ -106,37 +114,21 @@ optional. Loud incompleteness is fine here; silent wrongness is not.
 Chess correctness is handled by perft (20 / 400 / 8902 / 197281 from the start position) rather
 than by unit tests, plus "play one full game to mate" in the definition of done.
 
-## Spec-driven workflow (OpenSpec) — required
+## Spec-driven workflow (slimspec) — required
 
-This repo uses OpenSpec, deliberately cut down to four commands and two artifacts —
-a two-week sprint does not survive a four-stage proposal ritual.
+Specs live next to the code they describe: `scripts/CLAUDE.md`, `tools/CLAUDE.md`,
+`tests/CLAUDE.md`, `vendor/CLAUDE.md`, plus this file for cross-module facts. They state what
+the code does now, in present tense — not plans, not history.
 
-- `openspec/config.yaml` — project schema, context and per-artifact rules, injected into
-  every artifact the tooling generates.
-- `openspec/schemas/pawnch/` — the project-local schema: **specs → tasks**, nothing else.
-  `proposal.md` and `design.md` are dropped on purpose: the "why" already lives in
-  `docs/product-analysis.md` and the decisions in `docs/adr/`.
-- `openspec/specs/<capability>/spec.md` — current, accepted behavior per capability.
-- `openspec/changes/<name>/` — an in-flight change (`specs/<capability>/spec.md` delta +
-  `tasks.md`) before it lands in `specs/`.
-- `openspec/changes/archive/` — completed changes, kept for history.
+**No feature work without a change.** Every unit of work larger than a bugfix runs through
+slimspec — `/slimspec:fast <idea>` for small changes, `/slimspec:medium` or `/slimspec:full`
+when the change crosses modules or touches one of the four ADR-backed decisions above. The
+cycle is explore → plan → apply → verify → ground; ground is what folds the change into the
+module specs, so a change that skips it leaves the specs describing code that no longer
+exists. In-flight work lives in `.slimspec/changes/<slug>/` and is deleted on ground.
+`/slimspec` with no argument lists and resumes in-flight changes.
 
-**No feature work without a change.** Every unit of work larger than a bugfix runs
-`/opsx:ff <what you want>` → `/opsx:apply` → `/opsx:archive`, so that `specs/` always
-describes what the code actually does. `openspec status --change <name>` is the readiness
-check; `openspec validate` does not understand this schema and reports nothing — do not
-rely on it.
-
-`/opsx:explore` sits before all of that and is optional: a thinking stance for chewing on
-an idea, never a step that writes code.
-
-All eight `opsx` commands are present in the repo, but **only the four above are the
-flow.** `propose`, `sync`, `verify` and `bulk-archive` are the four-stage ritual this
-project deliberately cut; they are kept because `openspec update` regenerates them from
-the user's global config anyway, and deleting them every time was churn. Reaching for one
-is a signal that the workflow has drifted, not a shortcut.
-
-The MVP plan in `docs/mvp-plan.md` says *what* gets built and when; OpenSpec changes say
+The MVP plan in `docs/mvp-plan.md` says *what* gets built and when; the module specs say
 *what the behavior is*. They are not substitutes for each other.
 
 ## Working rhythm — required

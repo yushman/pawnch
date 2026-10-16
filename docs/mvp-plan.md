@@ -268,8 +268,9 @@ system-wide.
 **Inherited from Day 3.** The user cut the Day-3 kill checkpoint mid-session (2026-08-17) and
 chose to continue without answering it; `knight-takes-pawn-clash`'s Block D (frame-probe regions,
 extended boot warm exercised on-device, the idle/cold/warm/idle measurement sequence) was deferred
-here rather than run that day. See `openspec/changes/knight-takes-pawn-clash/tasks.md` Block D and
-the devlog entry dated 2026-08-17.
+here rather than run that day. See Block D of `knight-takes-pawn-clash`'s tasks
+(`git show a47da6c:openspec/changes/knight-takes-pawn-clash/tasks.md`) and the devlog entry dated
+2026-08-17.
 
 - [ ] On-device performance pass and full-game correctness run: play to checkmate, every piece
       type captures, cold-start-first-clash frame timing recorded, capture→clash latency
@@ -287,7 +288,8 @@ phone, from a cold start. **No feature work after today.**
 **Inherited from Day 3.** The user cut the Day-3 kill checkpoint mid-session (2026-08-17) and
 chose to continue without answering it; `knight-takes-pawn-clash`'s Block C (both 15 s recordings,
 the Ani Chess 3D comparison, the dated yes/no verdict) was deferred here rather than run that day.
-See `openspec/changes/knight-takes-pawn-clash/tasks.md` Block C and the devlog entry dated
+See Block C of `knight-takes-pawn-clash`'s tasks
+(`git show a47da6c:openspec/changes/knight-takes-pawn-clash/tasks.md`) and the devlog entry dated
 2026-08-17.
 
 - [ ] Signed release APK; GitHub Actions building the APK on push; LICENSE plus the vendored

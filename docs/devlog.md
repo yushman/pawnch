@@ -3995,6 +3995,35 @@ container is not one any more, so `CharacterRig.debris_count()` answers instead.
 would have gone quietly blind on the same commit that fixed the bug, which is the exact failure
 mode this entry is about.
 
+## 2026-10-16 — OpenSpec out, slimspec in
+
+No code, no device. The spec workflow changed, and the specs moved.
+
+**Why.** `openspec/specs/` had stopped describing the code. Six changes were built — two with
+every box ticked — and never archived, so their deltas (the duel panel, the rig, impact juice,
+per-type weapons, the frame-timing procedure, the signed release) never reached `specs/`. The
+readiness check reported on paperwork, not on the game. slimspec keeps the spec next to the code
+it describes and closes a change by folding it in (`ground`), so there is no separate archive step
+to forget.
+
+**What moved where.** The nine capability specs plus the deltas of all six open changes were
+distilled into `scripts/CLAUDE.md` (all gameplay — one file, because `scripts/` is one flat
+directory), `tools/CLAUDE.md`, `tests/CLAUDE.md` and `vendor/CLAUDE.md`. Every statement was
+checked against the code; where they disagreed, the code won. Root `CLAUDE.md` gained a Licences
+section and a slimspec workflow section in place of the OpenSpec one.
+
+**What was dropped, and why that is not a loss.** Ten spec statements the code contradicts or has
+no trace of: portrait 16:9–20:9 framing (the game is landscape-only), the crest at 18% of height
+(the importer uses 25%), three baked head variants per side (there is one), a face anchor check, a
+joint-seam check and a per-side atlas page (none exist), the pause menu opening leave/restart (the
+control is deliberately dead in play), "at least four captures a game" (a playtest observation,
+not a contract), the Day-1 placeholder scene, and the "unexplained improvement" rule (devlog
+process, not behaviour). The open tasks of the six unarchived changes went with `openspec/`; they
+are in git at `a47da6c`, and the genuinely open ones are already named in the 2026-09-03 entries.
+
+**Edited in place.** `CLAUDE.md`'s workflow section, and the two links in `docs/mvp-plan.md` that
+pointed at the deleted `knight-takes-pawn-clash/tasks.md` now point at it in git.
+
 ## Ideas for later
 
 - **A real arc for the severed head, instead of a tumble that coasts.** Decided on 2026-09-03 to
