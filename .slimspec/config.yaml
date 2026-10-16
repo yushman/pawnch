@@ -1,0 +1,12 @@
+mode: medium              # fast | medium | full
+spec:
+  format: claude-md       # claude-md | readme | central | native | none
+  unit: auto              # auto (by build files) | dir glob, e.g. "src/*/"
+  adr: false              # also keep decisions in docs/adr/NNNN-*.md
+test: auto                # or an explicit command
+commit: none              # none | lane | wave
+apply:
+  agents: 3               # max parallel implementers = max lanes per wave
+review:
+  depth: auto             # auto (by mode) | low | medium | high
+models: {}                # per-role overrides, e.g. {implementer: opus}
