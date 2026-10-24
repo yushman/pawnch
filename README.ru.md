@@ -397,6 +397,9 @@ apksigner verify --print-certs build/pawnch-release.apk
 
 **Код — под MIT**, см. [LICENSE](LICENSE).
 
+**Документы в `docs/`, название «Pawnch» и собственные ассеты — все права защищены**, см.
+[LICENSE-ASSETS](LICENSE-ASSETS).
+
 **Арт — нет.** Все человеческие фигуры в игре — персонажи дуэли, фигуры на доске, фигуры на
 кладбищах, командиры на полях — сделаны из бесплатных паков Craftpix по
 [Craftpix File License](https://craftpix.net/file-licenses/). Эта лицензия разрешает

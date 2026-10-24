@@ -396,6 +396,9 @@ The `docs/` directory is published deliberately; it shows how the decisions were
 
 **The code is MIT** — see [LICENSE](LICENSE).
 
+**The documents in `docs/`, the name "Pawnch" and original assets are all rights reserved** —
+see [LICENSE-ASSETS](LICENSE-ASSETS).
+
 **The art is not.** Every human figure in the game — the duel characters, the board pieces, the
 graveyard figures, the margin commanders — is derived from free Craftpix packs under the
 [Craftpix File License](https://craftpix.net/file-licenses/). That licence permits shipping and
